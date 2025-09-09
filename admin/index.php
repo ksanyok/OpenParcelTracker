@@ -52,6 +52,20 @@ function checkVersion(): ?array {
     return null;
 }
 
+// Handle force update
+if (isset($_GET['force_update'])) {
+    $output = [];
+    $returnVar = 0;
+    exec('git pull origin main 2>&1', $output, $returnVar);
+    if ($returnVar === 0) {
+        $message = 'Updated successfully: ' . implode("\\n", $output);
+    } else {
+        $message = 'Update failed: ' . implode("\\n", $output);
+    }
+    echo "<script>alert('$message'); window.location.href = 'index.php';</script>";
+    exit;
+}
+
 $pdo = pdo();
 
 // Check if default password is still in use
