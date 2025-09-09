@@ -767,5 +767,18 @@ $version_info = $logged ? checkVersion() : null;
 <?php endif; ?>
 </main>
 <?php require_once __DIR__ . '/../footer.php'; ?>
+<script>
+    // Update Footer
+    document.getElementById('updateBtnFooter')?.addEventListener('click', async ()=>{
+      if (!confirm('Are you sure you want to update from the repository? This may overwrite local changes.')) return;
+      const j = await post('update');
+      if (j.ok) {
+        alert('Updated successfully!');
+        location.reload();
+      } else {
+        alert('Update failed: ' + j.error);
+      }
+    });
+</script>
 </body>
 </html>
