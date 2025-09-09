@@ -3,6 +3,7 @@ declare(strict_types=1);
 session_start();
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../footer.php';
 
 /**
  * Admin panel:
@@ -27,6 +28,27 @@ function require_login_json(): void {
         echo json_encode(['ok'=>false,'error'=>'Unauthorized']);
         exit;
     }
+}
+
+function checkVersion(): ?array {
+    $url = 'https://api.github.com/repos/ksanyok/OpenParcelTracker/releases/latest';
+    $context = stream_context_create([
+        'http' => [
+            'header' => 'User-Agent: PHP',
+        ],
+    ]);
+    $response = file_get_contents($url, false, $context);
+    if ($response) {
+        $data = json_decode($response, true);
+        $latest = $data['tag_name'] ?? null;
+        $current = get_version();
+        return [
+            'latest' => $latest,
+            'current' => $current,
+            'update_available' => $latest && version_compare($latest, $current, '>')
+        ];
+    }
+    return null;
 }
 
 $pdo = pdo();
@@ -168,6 +190,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    if ($action === 'update') {
+        // Update from repository
+        $output = [];
+        $returnVar = 0;
+        exec('git pull origin main 2>&1', $output, $returnVar);
+        if ($returnVar === 0) {
+            echo json_encode(['ok' => true, 'message' => 'Updated successfully: ' . implode("\n", $output)]);
+        } else {
+            echo json_encode(['ok' => false, 'error' => 'Update failed: ' . implode("\n", $output)]);
+        }
+        exit;
+    }
+
     echo json_encode(['ok'=>false,'error'=>'Unknown action']);
     exit;
 }
@@ -217,9 +252,20 @@ $logged = is_logged_in();
 <header>
   <strong>Admin • Package Tracker</strong>
   <?php if ($logged): ?>
-    <button id="logoutBtn" title="Log out">Log out</button>
+    <div>
+      <button id="updateBtn" title="Update from repository">Update</button>
+      <button id="logoutBtn" title="Log out">Log out</button>
+    </div>
   <?php endif; ?>
 </header>
+<?php if ($logged): ?>
+  <?php $version_info = checkVersion(); ?>
+  <?php if ($version_info && $version_info['update_available']): ?>
+    <div style="background: #fff3cd; color: #856404; padding: 10px; text-align: center; border: 1px solid #ffeaa7;">
+      New version available: <strong><?php echo h($version_info['latest']); ?></strong> (current: <?php echo h($version_info['current']); ?>). <button id="updateNowBtn">Update Now</button>
+    </div>
+  <?php endif; ?>
+<?php endif; ?>
 <main>
 
 <?php if (!$logged): ?>
@@ -333,6 +379,30 @@ $logged = is_logged_in();
     document.getElementById('logoutBtn')?.addEventListener('click', async ()=>{
       await post('logout');
       location.href = location.href;
+    });
+
+    // Update
+    document.getElementById('updateBtn')?.addEventListener('click', async ()=>{
+      if (!confirm('Are you sure you want to update from the repository? This may overwrite local changes.')) return;
+      const j = await post('update');
+      if (j.ok) {
+        alert('Update successful: ' + j.message);
+        location.reload();
+      } else {
+        alert('Update failed: ' + j.error);
+      }
+    });
+
+    // Update Now
+    document.getElementById('updateNowBtn')?.addEventListener('click', async ()=>{
+      if (!confirm('Update to the latest version?')) return;
+      const j = await post('update');
+      if (j.ok) {
+        alert('Updated successfully!');
+        location.reload();
+      } else {
+        alert('Update failed: ' + j.error);
+      }
     });
 
     // Leaflet map
@@ -628,5 +698,6 @@ $logged = is_logged_in();
   </script>
 <?php endif; ?>
 </main>
+<?php require_once __DIR__ . '/../footer.php'; ?>
 </body>
 </html>

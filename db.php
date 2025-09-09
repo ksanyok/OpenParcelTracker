@@ -2,8 +2,7 @@
 /**
  * Central DB connection + schema bootstrap (SQLite or MySQL).
  *
- * By default uses SQLite at ./data/tracker.sqlite.
- * To use MySQL, set environment variables on the server:
+ * Set environment variables in .env file:
  *   DB_DRIVER=mysql
  *   DB_HOST=localhost
  *   DB_NAME=tracker
@@ -11,10 +10,23 @@
  *   DB_PASS=secret
  *   DB_CHARSET=utf8mb4
  *
+ * For SQLite, set DB_DRIVER=sqlite
+ *
  * Include:
  *   - public: require_once __DIR__ . '/db.php';
  *   - admin : require_once __DIR__ . '/../db.php';
  */
+
+// Load .env file if exists
+if (file_exists(__DIR__ . '/.env')) {
+    $envLines = file(__DIR__ . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($envLines as $line) {
+        if (strpos($line, '=') !== false) {
+            list($key, $value) = explode('=', $line, 2);
+            putenv(trim($key) . '=' . trim($value));
+        }
+    }
+}
 
 const DB_DIR  = __DIR__ . '/data';
 const DB_FILE = DB_DIR . '/tracker.sqlite';
@@ -31,11 +43,15 @@ function pdo(): PDO {
     $driver = getenv('DB_DRIVER') ?: 'mysql';
 
     if ($driver === 'mysql') {
-        $host    = getenv('DB_HOST')    ?: 'topbit.mysql.tools';
-        $db      = getenv('DB_NAME')    ?: 'topbit_tracking';
-        $user    = getenv('DB_USER')    ?: 'topbit_tracking';
-        $pass    = getenv('DB_PASS')    ?: '^Ef*mB247f';
+        $host    = getenv('DB_HOST');
+        $db      = getenv('DB_NAME');
+        $user    = getenv('DB_USER');
+        $pass    = getenv('DB_PASS');
         $charset = getenv('DB_CHARSET') ?: 'utf8mb4';
+
+        if (!$host || !$db || !$user) {
+            die('Database configuration incomplete. Please set DB_HOST, DB_NAME, DB_USER in .env file.');
+        }
 
         $dsn = "mysql:host={$host};dbname={$db};charset={$charset}";
         $pdo = new PDO($dsn, $user, $pass, [
