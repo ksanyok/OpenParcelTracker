@@ -13,5 +13,5 @@ function get_last_update(): string {
 }
 ?>
 <footer style="text-align: center; padding: 10px; background: #f0f0f0; margin-top: 20px;">
-    <p>OpenParcelTracker v<?= get_version() ?> | Last updated: <?= get_last_update() ?></p>
+    <p>Service developed by Buyreadysite.com | OpenParcelTracker v<?= get_version() ?> | Last updated: <?= get_last_update() ?></p>
 </footer>

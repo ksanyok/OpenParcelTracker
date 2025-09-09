@@ -330,11 +330,11 @@ $logged = is_logged_in();
           <input type="text" id="newArriving" placeholder="Arriving location *" required>
         </div>
         <div class="row">
-          <input type="text" id="newDestination" placeholder="Your order will be send to *" required>
-          <input type="text" id="newDeliveryOption" placeholder="Your delivery option *" required>
+          <input type="text" id="newDestination" placeholder="Destination *" required>
+          <input type="text" id="newDeliveryOption" placeholder="Delivery option *" required>
         </div>
         <div class="row">
-          <textarea id="newDescription" placeholder="Photos and Description *" rows="3" required></textarea>
+          <textarea id="newDescription" placeholder="Images and Description *" rows="3" required></textarea>
           <input type="file" id="newImage" accept="image/*">
           <button id="addBtn">Create</button>
         </div>

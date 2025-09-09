@@ -13,6 +13,27 @@ require_once __DIR__ . '/db.php';
 
 function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
+function checkVersion(): ?array {
+    $url = 'https://api.github.com/repos/ksanyok/OpenParcelTracker/releases/latest';
+    $context = stream_context_create([
+        'http' => [
+            'header' => 'User-Agent: PHP',
+        ],
+    ]);
+    $response = file_get_contents($url, false, $context);
+    if ($response) {
+        $data = json_decode($response, true);
+        $latest = $data['tag_name'] ?? null;
+        $current = VERSION;
+        return [
+            'latest' => $latest,
+            'current' => $current,
+            'update_available' => $latest && version_compare($latest, $current, '>')
+        ];
+    }
+    return null;
+}
+
 $pdo = pdo();
 
 // Load by tracking number if provided
@@ -32,6 +53,8 @@ if ($tracking !== '') {
         $history = $stmH->fetchAll();
     }
 }
+
+$version_info = checkVersion();
 ?>
 <!doctype html>
 <html lang="en">
@@ -46,9 +69,10 @@ if ($tracking !== '') {
   crossorigin=""
 />
 <style>
-  body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:0; color:#111;}
+  body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:0; color:#111; min-height: 100vh; display: flex; flex-direction: column;}
   header{padding:16px 20px; background:#0f172a; color:#fff;}
-  main{padding:20px; max-width:1100px; margin:0 auto;}
+  main{padding:20px; max-width:1100px; margin:0 auto; flex: 1;}
+  footer{margin-top: auto; text-align: center; padding: 10px; background: #f0f0f0;}
   .card{background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px; box-shadow:0 1px 2px rgba(0,0,0,.04);}
   .row{display:flex; gap:16px; flex-wrap:wrap;}
   .field{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
@@ -61,12 +85,18 @@ if ($tracking !== '') {
   .muted{color:#64748b;}
   .badge{display:inline-block; padding:2px 8px; border-radius:999px; background:#f1f5f9; color:#0f172a; font-size:12px;}
   .hint{font-size:12px; color:#64748b;}
+  .update-notice{background: #fff3cd; color: #856404; padding: 10px; text-align: center; border: 1px solid #ffeaa7; margin-bottom: 16px;}
 </style>
 </head>
 <body>
 <header>
   <h1>Package Tracker</h1>
 </header>
+<?php if ($version_info && $version_info['update_available']): ?>
+<div class="update-notice">
+  Update available to version <strong><?php echo h($version_info['latest']); ?></strong> (current: <?php echo h($version_info['current']); ?>). <a href="admin/index.php"><button>Update</button></a>
+</div>
+<?php endif; ?>
 <main>
   <div class="card" style="margin-bottom:16px;">
     <form method="get" class="field">
@@ -90,9 +120,9 @@ if ($tracking !== '') {
         <p><strong>Tracking #:</strong> <span class="badge"><?=h($pkg['tracking_number'])?></span></p>
 <p><strong>Title:</strong> <?=h((string)$pkg['title'])?></p>
 <p><strong>Arriving:</strong> <?=h((string)$pkg['arriving'])?></p>
-<p><strong>Your order will be send to:</strong> <?=h((string)$pkg['destination'])?></p>
-<p><strong>You delivery option:</strong> <?=h((string)$pkg['delivery_option'])?></p>
-<p><strong>Photos and Description:</strong> <?=h((string)$pkg['description'])?></p>
+<p><strong>Destination:</strong> <?=h((string)$pkg['destination'])?></p>
+<p><strong>Delivery option:</strong> <?=h((string)$pkg['delivery_option'])?></p>
+<p><strong>Images and Description:</strong> <?=h((string)$pkg['description'])?></p>
 <p class="muted">Updated: <?=h((string)$pkg['updated_at'])?></p>
 
         <?php if ($pkg['last_address']): ?>
