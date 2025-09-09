@@ -8,8 +8,8 @@ function get_version(): string {
 }
 
 function get_last_update(): string {
-    $date = exec('git log -1 --format=%ci 2>/dev/null');
-    return $date ? trim($date) : date('Y-m-d H:i:s');
+    $date = exec('git log -1 --format=%cd --date=short 2>/dev/null');
+    return $date ? trim($date) : date('Y-m-d');
 }
 ?>
 <footer style="text-align: center; padding: 10px; background: #f0f0f0; margin-top: 20px;">

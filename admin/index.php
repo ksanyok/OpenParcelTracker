@@ -50,10 +50,6 @@ function checkVersion(): ?array {
     return null;
 }
 
-function get_version(): string {
-    return VERSION;
-}
-
 $pdo = pdo();
 
 // Check if default password is still in use
