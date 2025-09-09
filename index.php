@@ -14,7 +14,7 @@ require_once __DIR__ . '/db.php';
 function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
 function checkVersion(): ?array {
-    $url = 'https://api.github.com/repos/ksanyok/OpenParcelTracker/releases/latest';
+    $url = 'https://raw.githubusercontent.com/ksanyok/OpenParcelTracker/main/db.php';
     $context = stream_context_create([
         'http' => [
             'header' => 'User-Agent: PHP',
@@ -22,14 +22,16 @@ function checkVersion(): ?array {
     ]);
     $response = file_get_contents($url, false, $context);
     if ($response) {
-        $data = json_decode($response, true);
-        $latest = $data['tag_name'] ?? null;
-        $current = VERSION;
-        return [
-            'latest' => $latest,
-            'current' => $current,
-            'update_available' => $latest && version_compare($latest, $current, '>')
-        ];
+        // Extract VERSION from the file
+        if (preg_match('/const VERSION = \'([^\']+)\'/', $response, $matches)) {
+            $latest = $matches[1];
+            $current = VERSION;
+            return [
+                'latest' => $latest,
+                'current' => $current,
+                'update_available' => version_compare($latest, $current, '>')
+            ];
+        }
     }
     return null;
 }
