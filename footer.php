@@ -4,8 +4,7 @@
  */
 
 function get_version(): string {
-    $version = exec('git describe --tags 2>/dev/null');
-    return $version ? trim($version) : 'dev';
+    return VERSION;
 }
 
 function get_last_update(): string {
