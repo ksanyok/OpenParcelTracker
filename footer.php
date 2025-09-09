@@ -3,7 +3,7 @@
  * Footer with version and last update info.
  */
 ?>
-<footer style="text-align: center; padding: 10px; background: #f0f0f0; margin-top: 20px;">
+<footer>
     <p>Service developed by <a href="https://buyreadysite.com" target="_blank">Buyreadysite.com</a> | OpenParcelTracker v<?= get_version() ?> | Last updated: <?= get_last_update() ?>
     <?php if (isset($_SESSION['uid'])): ?>
     | <a href="javascript:location.reload()">Check for updates</a>

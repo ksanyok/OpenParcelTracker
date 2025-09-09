@@ -71,26 +71,221 @@ $version_info = checkVersion();
   crossorigin=""
 />
 <style>
-  body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:0; color:#111; min-height: 100vh; display: flex; flex-direction: column;}
-  header{padding:16px 20px; background:#0f172a; color:#fff;}
-  main{padding:20px; max-width:1100px; margin:0 auto; flex: 1;}
-  footer{margin-top: auto; text-align: center; padding: 10px; background: #f0f0f0;}
-  .card{background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px; box-shadow:0 1px 2px rgba(0,0,0,.04);}
-  .row{display:flex; gap:16px; flex-wrap:wrap;}
-  .field{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
-  input[type=text]{padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; min-width:260px;}
-  button{padding:10px 14px; border:0; border-radius:10px; background:#2563eb; color:#fff; cursor:pointer;}
-  button:hover{background:#1d4ed8;}
-  #map{height:420px; border-radius:12px; border:1px solid #e5e7eb;}
-  table{width:100%; border-collapse:collapse;}
-  th, td{padding:8px 10px; border-bottom:1px solid #e5e7eb; text-align:left;}
-  .muted{color:#64748b;}
-  .badge{display:inline-block; padding:2px 8px; border-radius:999px; background:#f1f5f9; color:#0f172a; font-size:12px;}
-  .hint{font-size:12px; color:#64748b;}
-  .update-notice{background: #fff3cd; color: #856404; padding: 10px; text-align: center; border: 1px solid #ffeaa7; margin-bottom: 16px;}
+  body{
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    color: #111;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    position: relative;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(45deg, rgba(212, 5, 17, 0.05) 0%, rgba(255, 204, 0, 0.05) 100%);
+    z-index: -1;
+  }
+  .floating {
+    position: absolute;
+    border-radius: 50%;
+    opacity: 0.1;
+    animation: float 8s ease-in-out infinite;
+    z-index: -1;
+  }
+  .floating:nth-child(1) {
+    width: 60px;
+    height: 60px;
+    background: #D40511;
+    top: 10%;
+    left: 10%;
+    animation-delay: 0s;
+  }
+  .floating:nth-child(2) {
+    width: 40px;
+    height: 40px;
+    background: #FFCC00;
+    top: 20%;
+    right: 15%;
+    animation-delay: 2s;
+  }
+  .floating:nth-child(3) {
+    width: 80px;
+    height: 80px;
+    background: #D40511;
+    bottom: 20%;
+    left: 20%;
+    animation-delay: 4s;
+  }
+  .floating:nth-child(4) {
+    width: 50px;
+    height: 50px;
+    background: #FFCC00;
+    bottom: 10%;
+    right: 10%;
+    animation-delay: 6s;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0px) rotate(0deg); }
+    50% { transform: translateY(-30px) rotate(180deg); }
+  }
+  header{
+    padding: 20px;
+    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
+    color: #fff;
+    text-align: center;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+  main{
+    padding: 20px;
+    max-width: 1100px;
+    margin: 0 auto;
+    flex: 1;
+    position: relative;
+    z-index: 1;
+  }
+  footer{
+    margin-top: auto;
+    text-align: center;
+    padding: 15px;
+    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
+    color: #fff;
+    box-shadow: 0 -4px 6px rgba(0,0,0,0.1);
+  }
+  .card{
+    background: #fff;
+    border: none;
+    border-radius: 15px;
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(212, 5, 17, 0.1);
+    margin-bottom: 20px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 40px rgba(212, 5, 17, 0.2);
+  }
+  .row{
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .field{
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  input[type=text]{
+    padding: 12px 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    min-width: 260px;
+    font-size: 16px;
+    transition: border-color 0.3s ease;
+  }
+  input[type=text]:focus {
+    border-color: #D40511;
+    outline: none;
+  }
+  button{
+    padding: 12px 20px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
+    color: #fff;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.3s ease, transform 0.2s ease;
+  }
+  button:hover{
+    background: linear-gradient(90deg, #b0040f 0%, #e6b800 100%);
+    transform: scale(1.05);
+  }
+  #map{
+    height: 450px;
+    border-radius: 15px;
+    border: 2px solid #e5e7eb;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  table{
+    width: 100%;
+    border-collapse: collapse;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  th, td{
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    text-align: left;
+  }
+  th {
+    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
+    color: #fff;
+  }
+  .muted{
+    color: #64748b;
+  }
+  .badge{
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
+    color: #fff;
+    font-size: 14px;
+    font-weight: bold;
+  }
+  .hint{
+    font-size: 14px;
+    color: #64748b;
+  }
+  .update-notice{
+    background: linear-gradient(90deg, #fff3cd 0%, #ffeaa7 100%);
+    color: #856404;
+    padding: 15px;
+    text-align: center;
+    border: 2px solid #ffeaa7;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  @media (max-width: 768px) {
+    main {
+      padding: 10px;
+    }
+    .row {
+      flex-direction: column;
+    }
+    .field {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    input[type=text] {
+      min-width: auto;
+      width: 100%;
+    }
+    #map {
+      height: 300px;
+    }
+    .card {
+      padding: 15px;
+    }
+  }
 </style>
 </head>
 <body>
+<div class="floating"></div>
+<div class="floating"></div>
+<div class="floating"></div>
+<div class="floating"></div>
 <header>
   <h1>Package Tracker</h1>
 </header>
