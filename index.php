@@ -64,6 +64,7 @@ $version_info = checkVersion();
 <meta charset="utf-8">
 <title>Package Tracker</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#D40511">
 <link
   rel="stylesheet"
   href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -71,227 +72,88 @@ $version_info = checkVersion();
   crossorigin=""
 />
 <style>
-  body{
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-    color: #111;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-    position: relative;
-    overflow-x: hidden;
+  :root{
+    --brand-yellow:#FFCC00; /* DHL Yellow */
+    --brand-red:#D40511;    /* DHL Red */
+    --brand-red-dark:#b1040e;
+    --text:#0b0b0b;
+    --muted:#5b6470;
+    --card-bg:rgba(255,255,255,0.92);
+    --card-border:rgba(0,0,0,0.06);
+    --shadow:0 10px 30px rgba(212,5,17,0.08);
   }
-  body::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(45deg, rgba(212, 5, 17, 0.05) 0%, rgba(255, 204, 0, 0.05) 100%);
-    z-index: -1;
+  *{box-sizing:border-box}
+  html, body{height:100%}
+  body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:0; color:var(--text); min-height: 100vh; display: flex; flex-direction: column; background: #fff;}
+
+  /* Animated brand background */
+  .bg-animated{
+    position:fixed; inset:0; overflow:hidden; z-index:0; pointer-events:none;
+    background: linear-gradient(120deg, rgba(255,204,0,0.15), rgba(255,255,255,0) 40%),
+                radial-gradient(60vw 60vw at -10% -20%, rgba(255,204,0,0.35), rgba(255,204,0,0) 60%),
+                radial-gradient(50vw 50vw at 110% 10%, rgba(212,5,17,0.25), rgba(212,5,17,0) 60%);
+    filter: saturate(110%);
   }
-  .floating {
-    position: absolute;
-    border-radius: 50%;
-    opacity: 0.1;
-    animation: float 8s ease-in-out infinite;
-    z-index: -1;
+  .bg-animated::before,
+  .bg-animated::after{
+    content:""; position:absolute; inset:-20%;
+    background: conic-gradient(from 0deg, rgba(255,204,0,0.20), rgba(212,5,17,0.15), rgba(255,204,0,0.20));
+    animation: swirl 24s linear infinite;
+    mix-blend-mode: multiply;
   }
-  .floating:nth-child(1) {
-    width: 60px;
-    height: 60px;
-    background: #D40511;
-    top: 10%;
-    left: 10%;
-    animation-delay: 0s;
-  }
-  .floating:nth-child(2) {
-    width: 40px;
-    height: 40px;
-    background: #FFCC00;
-    top: 20%;
-    right: 15%;
-    animation-delay: 2s;
-  }
-  .floating:nth-child(3) {
-    width: 80px;
-    height: 80px;
-    background: #D40511;
-    bottom: 20%;
-    left: 20%;
-    animation-delay: 4s;
-  }
-  .floating:nth-child(4) {
-    width: 50px;
-    height: 50px;
-    background: #FFCC00;
-    bottom: 10%;
-    right: 10%;
-    animation-delay: 6s;
-  }
-  @keyframes float {
-    0%, 100% { transform: translateY(0px) rotate(0deg); }
-    50% { transform: translateY(-30px) rotate(180deg); }
-  }
+  .bg-animated::after{ animation-duration: 36s; animation-direction: reverse; opacity:.6 }
+  @keyframes swirl{ to { transform: rotate(1turn); } }
+
   header{
-    padding: 20px;
-    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
-    color: #fff;
-    text-align: center;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    position: relative; z-index:1;
+    padding:18px 20px;
+    background: linear-gradient(90deg, var(--brand-red) 0%, #e50f1b 35%, var(--brand-yellow) 100%);
+    color:#fff;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
   }
-  main{
-    padding: 20px;
-    max-width: 1100px;
-    margin: 0 auto;
-    flex: 1;
-    position: relative;
-    z-index: 1;
-  }
-  footer{
-    margin-top: auto;
-    text-align: center;
-    padding: 15px;
-    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
-    color: #fff;
-    box-shadow: 0 -4px 6px rgba(0,0,0,0.1);
-  }
-  .card{
-    background: #fff;
-    border: none;
-    border-radius: 15px;
-    padding: 20px;
-    box-shadow: 0 8px 32px rgba(212, 5, 17, 0.1);
-    margin-bottom: 20px;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-  }
-  .card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 12px 40px rgba(212, 5, 17, 0.2);
-  }
-  .row{
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-  .field{
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  input[type=text]{
-    padding: 12px 16px;
-    border: 2px solid #e5e7eb;
-    border-radius: 12px;
-    min-width: 260px;
-    font-size: 16px;
-    transition: border-color 0.3s ease;
-  }
-  input[type=text]:focus {
-    border-color: #D40511;
-    outline: none;
-  }
-  button{
-    padding: 12px 20px;
-    border: none;
-    border-radius: 12px;
-    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
-    color: #fff;
-    cursor: pointer;
-    font-weight: bold;
-    transition: background 0.3s ease, transform 0.2s ease;
-  }
-  button:hover{
-    background: linear-gradient(90deg, #b0040f 0%, #e6b800 100%);
-    transform: scale(1.05);
-  }
-  #map{
-    height: 450px;
-    border-radius: 15px;
-    border: 2px solid #e5e7eb;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  }
-  table{
-    width: 100%;
-    border-collapse: collapse;
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  }
-  th, td{
-    padding: 12px 16px;
-    border-bottom: 1px solid #e5e7eb;
-    text-align: left;
-  }
-  th {
-    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
-    color: #fff;
-  }
-  .muted{
-    color: #64748b;
-  }
-  .badge{
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 20px;
-    background: linear-gradient(90deg, #D40511 0%, #FFCC00 100%);
-    color: #fff;
-    font-size: 14px;
-    font-weight: bold;
-  }
-  .hint{
-    font-size: 14px;
-    color: #64748b;
-  }
-  .update-notice{
-    background: linear-gradient(90deg, #fff3cd 0%, #ffeaa7 100%);
-    color: #856404;
-    padding: 15px;
-    text-align: center;
-    border: 2px solid #ffeaa7;
-    border-radius: 12px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  }
-  @media (max-width: 768px) {
-    main {
-      padding: 10px;
-    }
-    .row {
-      flex-direction: column;
-    }
-    .field {
-      flex-direction: column;
-      align-items: stretch;
-    }
-    input[type=text] {
-      min-width: auto;
-      width: 100%;
-    }
-    #map {
-      height: 300px;
-    }
-    .card {
-      padding: 15px;
-    }
+  header h1{margin:0; font-size:20px; letter-spacing:.3px}
+  .brand-badge{display:inline-block; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.25);}  
+
+  main{position: relative; z-index:1; padding:20px; max-width:1100px; margin:0 auto; width:100%;}
+  footer{position: relative; z-index:1; margin-top: auto;}
+
+  .card{background:var(--card-bg); border:1px solid var(--card-border); border-radius:16px; padding:16px; box-shadow:var(--shadow); backdrop-filter: blur(6px);} 
+  .row{display:flex; gap:16px; flex-wrap:wrap; align-items:center}
+  .field{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  input[type=text]{padding:12px 14px; border:1px solid #e3e6ea; border-radius:12px; min-width:260px; outline:none; transition:.2s border-color, .2s box-shadow;}
+  input[type=text]:focus{border-color: var(--brand-red); box-shadow:0 0 0 3px rgba(212,5,17,0.15)}
+  button{padding:12px 16px; border:0; border-radius:12px; background: linear-gradient(180deg, var(--brand-red), var(--brand-red-dark)); color:#fff; cursor:pointer; box-shadow: 0 6px 14px rgba(212,5,17,0.25); transition:.2s transform, .2s opacity, .2s box-shadow}
+  button:hover{transform: translateY(-1px); box-shadow:0 10px 20px rgba(212,5,17,0.3)}
+  button:active{transform: translateY(0)}
+  .btn-secondary{background: linear-gradient(180deg, #ffcd00, #f1b800); color:#111; box-shadow:0 6px 14px rgba(255,204,0,0.35)}
+
+  #map{height:420px; border-radius:14px; border:1px solid var(--card-border); overflow:hidden; box-shadow: var(--shadow);}
+  table{width:100%; border-collapse:collapse;}
+  th, td{padding:10px 10px; border-bottom:1px solid #eceff3; text-align:left;}
+  .muted{color:var(--muted);} 
+  .badge{display:inline-block; padding:3px 10px; border-radius:999px; background:linear-gradient(180deg, #fff 0%, #ffe680 100%); border:1px solid #ffd34d; color:#553300; font-size:12px;}
+  .hint{font-size:12px; color:var(--muted);} 
+  .update-notice{background: linear-gradient(90deg, #fff7cc, #ffeab3); color:#7c5a00; padding: 10px; text-align: center; border: 1px solid #ffd34d; margin: 12px 20px; border-radius:12px; box-shadow: var(--shadow);} 
+
+  /* Responsive tweaks */
+  @media (max-width: 640px){
+    header{padding:14px 16px}
+    header h1{font-size:18px}
+    input[type=text]{min-width: 0; width: 100%;}
+    .field{align-items:stretch}
+    button{width:100%}
   }
 </style>
 </head>
 <body>
-<div class="floating"></div>
-<div class="floating"></div>
-<div class="floating"></div>
-<div class="floating"></div>
+<div class="bg-animated" aria-hidden="true"></div>
 <header>
   <h1>Package Tracker</h1>
+  <span class="brand-badge">Fast • Reliable</span>
 </header>
 <?php if ($version_info && $version_info['update_available']): ?>
 <div class="update-notice">
-  Update available to version <strong><?php echo h($version_info['latest']); ?></strong> (current: <?php echo h($version_info['current']); ?>). <a href="admin/index.php"><button>Update</button></a>
+  Update available to version <strong><?php echo h($version_info['latest']); ?></strong> (current: <?php echo h($version_info['current']); ?>). <a href="admin/index.php"><button class="btn-secondary">Update</button></a>
 </div>
 <?php endif; ?>
 <main>
@@ -315,12 +177,12 @@ $version_info = checkVersion();
     <div class="row">
       <div style="flex:1 1 320px;">
         <p><strong>Tracking #:</strong> <span class="badge"><?=h($pkg['tracking_number'])?></span></p>
-<p><strong>Title:</strong> <?=h((string)$pkg['title'])?></p>
-<p><strong>Arriving:</strong> <?=h((string)$pkg['arriving'])?></p>
-<p><strong>Destination:</strong> <?=h((string)$pkg['destination'])?></p>
-<p><strong>Delivery option:</strong> <?=h((string)$pkg['delivery_option'])?></p>
-<p><strong>Images and Description:</strong> <?=h((string)$pkg['description'])?></p>
-<p class="muted">Updated: <?=h((string)$pkg['updated_at'])?></p>
+        <p><strong>Title:</strong> <?=h((string)$pkg['title'])?></p>
+        <p><strong>Arriving:</strong> <?=h((string)$pkg['arriving'])?></p>
+        <p><strong>Destination:</strong> <?=h((string)$pkg['destination'])?></p>
+        <p><strong>Delivery option:</strong> <?=h((string)$pkg['delivery_option'])?></p>
+        <p><strong>Images and Description:</strong> <?=h((string)$pkg['description'])?></p>
+        <p class="muted">Updated: <?=h((string)$pkg['updated_at'])?></p>
 
         <?php if ($pkg['last_address']): ?>
           <p><strong>Current address:</strong> <?=h((string)$pkg['last_address'])?></p>
@@ -332,7 +194,7 @@ $version_info = checkVersion();
         <?php endif; ?>
 
         <?php if (!empty($pkg['image_path'])): ?>
-          <img src="<?=h((string)$pkg['image_path'])?>" alt="Image" style="max-width:300px; margin-top:10px;">
+          <img src="<?=h((string)$pkg['image_path'])?>" alt="Image" style="max-width:300px; margin-top:10px; border-radius:12px; box-shadow: var(--shadow);">
         <?php endif; ?>
       </div>
     </div>
