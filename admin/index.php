@@ -29,10 +29,6 @@ function require_login_json(): void {
     }
 }
 
-function get_version(): string {
-    return VERSION;
-}
-
 function checkVersion(): ?array {
     $url = 'https://raw.githubusercontent.com/ksanyok/OpenParcelTracker/main/db.php';
     $context = stream_context_create([
