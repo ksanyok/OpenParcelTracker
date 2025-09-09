@@ -52,10 +52,6 @@ function checkVersion(): ?array {
     return null;
 }
 
-function get_version(): string {
-    return VERSION;
-}
-
 // Handle force update
 if (isset($_GET['force_update'])) {
     $output = [];
