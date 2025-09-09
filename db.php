@@ -30,7 +30,7 @@ if (file_exists(__DIR__ . '/.env')) {
 
 const DB_DIR  = __DIR__ . '/data';
 const DB_FILE = DB_DIR . '/tracker.sqlite';
-const VERSION = '1.7.1';
+const VERSION = '1.7.2';
 
 /**
  * Get shared PDO instance and ensure schema exists.
