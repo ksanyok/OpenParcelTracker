@@ -33,6 +33,21 @@ const DB_FILE = DB_DIR . '/tracker.sqlite';
 const VERSION = '1.7.2';
 
 /**
+ * Get the current version of the application.
+ */
+function get_version(): string {
+    return VERSION;
+}
+
+/**
+ * Get the last update timestamp of the database.
+ */
+function get_last_update(): string {
+    $date = exec('git log -1 --format=%cd --date=short 2>/dev/null');
+    return $date ? trim($date) : date('Y-m-d');
+}
+
+/**
  * Get shared PDO instance and ensure schema exists.
  */
 function pdo(): PDO {

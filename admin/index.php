@@ -256,6 +256,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 $logged = is_logged_in();
+$version_info = $logged ? checkVersion() : null;
 ?>
 <!doctype html>
 <html lang="en">
@@ -302,21 +303,13 @@ $logged = is_logged_in();
   <?php if ($logged): ?>
     <div>
       <?php if ($version_info && $version_info['update_available']): ?>
-        <button id="updateBtn" title="Update from repository">Update</button>
+        <button id="updateBtn" title="Update from repository">Update to <?php echo h($version_info['latest']); ?></button>
+        <a href="?force_update=1" style="margin-left:10px; color: yellow;">(force)</a>
       <?php endif; ?>
       <button id="logoutBtn" title="Log out">Log out</button>
     </div>
   <?php endif; ?>
 </header>
-<?php if ($logged): ?>
-  <?php $version_info = checkVersion(); ?>
-  <?php if ($version_info && $version_info['update_available']): ?>
-    <div style="background: #fff3cd; color: #856404; padding: 10px; text-align: center; border: 1px solid #ffeaa7;">
-      New version available: <strong><?php echo h($version_info['latest']); ?></strong> (current: <?php echo h($version_info['current']); ?>). <button id="updateNowBtn">Update Now</button>
-    </div>
-  <?php endif; ?>
-  <div id="updateNotification" style="display:none; background: #d4edda; color: #155724; padding: 10px; text-align: center; border: 1px solid #c3e6cb;"></div>
-<?php endif; ?>
 <main>
 
 <?php if (!$logged): ?>
@@ -449,21 +442,7 @@ $logged = is_logged_in();
       if (!confirm('Are you sure you want to update from the repository? This may overwrite local changes.')) return;
       const j = await post('update');
       if (j.ok) {
-        $('#updateNotification').text('Updated to version ' + VERSION + ' successfully!').show();
-        setTimeout(() => $('#updateNotification').hide(), 5000);
-        location.reload();
-      } else {
-        alert('Update failed: ' + j.error);
-      }
-    });
-
-    // Update Now
-    document.getElementById('updateNowBtn')?.addEventListener('click', async ()=>{
-      if (!confirm('Update to the latest version?')) return;
-      const j = await post('update');
-      if (j.ok) {
-        $('#updateNotification').text('Updated to version ' + VERSION + ' successfully!').show();
-        setTimeout(() => $('#updateNotification').hide(), 5000);
+        alert('Updated successfully!');
         location.reload();
       } else {
         alert('Update failed: ' + j.error);
