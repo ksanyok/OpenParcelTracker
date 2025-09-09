@@ -50,7 +50,17 @@ function checkVersion(): ?array {
     return null;
 }
 
+function get_version(): string {
+    return VERSION;
+}
+
 $pdo = pdo();
+
+// Check if default password is still in use
+$stm = $pdo->prepare("SELECT password_hash FROM users WHERE username = ?");
+$stm->execute(['admin']);
+$row = $stm->fetch();
+$showDefault = $row && password_verify('admin123', $row['password_hash']);
 
 // Handle AJAX
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -202,6 +212,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    if ($action === 'changePassword') {
+        $currentPassword = $_POST['currentPassword'] ?? '';
+        $newPassword = $_POST['newPassword'] ?? '';
+        $confirmPassword = $_POST['confirmPassword'] ?? '';
+
+        if (empty($newPassword) || $newPassword !== $confirmPassword) {
+            echo json_encode(['ok' => false, 'error' => 'New password and confirmation do not match.']);
+            exit;
+        }
+
+        // Check current password
+        $stm = $pdo->prepare("SELECT password_hash FROM users WHERE id = ?");
+        $stm->execute([$_SESSION['uid']]);
+        $row = $stm->fetch();
+        if (!$row || !password_verify($currentPassword, $row['password_hash'])) {
+            echo json_encode(['ok' => false, 'error' => 'Current password is incorrect.']);
+            exit;
+        }
+
+        // Update password
+        $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $stm = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+        $stm->execute([$newHash, $_SESSION['uid']]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
     echo json_encode(['ok'=>false,'error'=>'Unknown action']);
     exit;
 }
@@ -252,7 +289,9 @@ $logged = is_logged_in();
   <strong>Admin • Package Tracker</strong>
   <?php if ($logged): ?>
     <div>
-      <button id="updateBtn" title="Update from repository">Update</button>
+      <?php if ($version_info && $version_info['update_available']): ?>
+        <button id="updateBtn" title="Update from repository">Update</button>
+      <?php endif; ?>
       <button id="logoutBtn" title="Log out">Log out</button>
     </div>
   <?php endif; ?>
@@ -264,6 +303,7 @@ $logged = is_logged_in();
       New version available: <strong><?php echo h($version_info['latest']); ?></strong> (current: <?php echo h($version_info['current']); ?>). <button id="updateNowBtn">Update Now</button>
     </div>
   <?php endif; ?>
+  <div id="updateNotification" style="display:none; background: #d4edda; color: #155724; padding: 10px; text-align: center; border: 1px solid #c3e6cb;"></div>
 <?php endif; ?>
 <main>
 
@@ -274,7 +314,9 @@ $logged = is_logged_in();
       <label>Username<br><input type="text" id="u" value="admin" autocomplete="username"></label>
       <label>Password<br><input type="password" id="p" value="admin123" autocomplete="current-password"></label>
       <button id="loginBtn">Sign in</button>
-      <p class="hint">Default credentials are <code>admin / admin123</code> (auto-created on first run). Change ASAP.</p>
+      <?php if ($showDefault): ?>
+        <p class="hint">Default credentials are <code>admin / admin123</code> (auto-created on first run). Change ASAP.</p>
+      <?php endif; ?>
     </form>
   </div>
   <script>
@@ -353,6 +395,16 @@ $logged = is_logged_in();
           <?php endif; ?>
         </div>
       </div>
+
+      <hr style="margin:16px 0; border:0; border-top:1px solid var(--border);">
+
+      <h3>Change Password</h3>
+      <form id="changePasswordForm" class="grid">
+        <input type="password" id="currentPassword" placeholder="Current password" required>
+        <input type="password" id="newPassword" placeholder="New password" required>
+        <input type="password" id="confirmPassword" placeholder="Confirm new password" required>
+        <button id="changePasswordBtn">Change Password</button>
+      </form>
     </div>
   </div>
 
@@ -385,7 +437,8 @@ $logged = is_logged_in();
       if (!confirm('Are you sure you want to update from the repository? This may overwrite local changes.')) return;
       const j = await post('update');
       if (j.ok) {
-        alert('Update successful: ' + j.message);
+        $('#updateNotification').text('Updated to version ' + VERSION + ' successfully!').show();
+        setTimeout(() => $('#updateNotification').hide(), 5000);
         location.reload();
       } else {
         alert('Update failed: ' + j.error);
@@ -397,7 +450,8 @@ $logged = is_logged_in();
       if (!confirm('Update to the latest version?')) return;
       const j = await post('update');
       if (j.ok) {
-        alert('Updated successfully!');
+        $('#updateNotification').text('Updated to version ' + VERSION + ' successfully!').show();
+        setTimeout(() => $('#updateNotification').hide(), 5000);
         location.reload();
       } else {
         alert('Update failed: ' + j.error);
@@ -690,6 +744,30 @@ $logged = is_logged_in();
       $('#newDescription').value = '';
       imageInput.value = '';
       await loadList();
+    });
+
+    // Change password
+    $('#changePasswordBtn').addEventListener('click', async ()=>{
+      const currentPassword = $('#currentPassword').value.trim();
+      const newPassword = $('#newPassword').value.trim();
+      const confirmPassword = $('#confirmPassword').value.trim();
+
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        alert('All fields are required.');
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        alert('New password and confirmation do not match.');
+        return;
+      }
+
+      const j = await post('changePassword', { currentPassword, newPassword, confirmPassword });
+      if (!j.ok) { alert(j.error || 'Change password failed'); return; }
+      alert('Password changed successfully.');
+      $('#currentPassword').value = '';
+      $('#newPassword').value = '';
+      $('#confirmPassword').value = '';
     });
 
     // Initial
