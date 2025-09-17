@@ -215,15 +215,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($action === 'update') {
-        // Update from repository
-        $output = [];
-        $returnVar = 0;
-        exec('git pull origin main 2>&1', $output, $returnVar);
-        if ($returnVar === 0) {
-            echo json_encode(['ok' => true, 'message' => 'Updated successfully: ' . implode("\n", $output)]);
-        } else {
-            echo json_encode(['ok' => false, 'error' => 'Update failed: ' . implode("\n", $output)]);
+        // Download and extract the repository
+        $repoUrl = 'https://github.com/ksanyok/OpenParcelTracker/archive/refs/heads/main.zip';
+        $zipFile = __DIR__ . '/../temp.zip';
+        $extractDir = __DIR__ . '/../temp';
+
+        // Clean up old files
+        @unlink($zipFile);
+        if (is_dir($extractDir)) {
+            // Recursively delete temp dir if exists
+            function delete_recursive($dir) {
+                if (!is_dir($dir)) return;
+                $files = scandir($dir);
+                foreach ($files as $file) {
+                    if ($file !== '.' && $file !== '..') {
+                        $path = $dir . '/' . $file;
+                        is_dir($path) ? delete_recursive($path) : unlink($path);
+                    }
+                }
+                rmdir($dir);
+            }
+            delete_recursive($extractDir);
         }
+
+        // Download the zip
+        $zipContent = file_get_contents($repoUrl);
+        if ($zipContent === false) {
+            echo json_encode(['ok' => false, 'error' => 'Failed to download repository zip.']);
+            exit;
+        }
+        file_put_contents($zipFile, $zipContent);
+
+        // Extract the zip
+        $zip = new ZipArchive();
+        if ($zip->open($zipFile) === TRUE) {
+            $zip->extractTo($extractDir);
+            $zip->close();
+        } else {
+            unlink($zipFile);
+            echo json_encode(['ok' => false, 'error' => 'Failed to extract repository zip.']);
+            exit;
+        }
+        unlink($zipFile);
+
+        // Find the extracted folder
+        $extractedFolders = scandir($extractDir);
+        $repoFolder = null;
+        foreach ($extractedFolders as $folder) {
+            if ($folder !== '.' && $folder !== '..' && is_dir($extractDir . '/' . $folder)) {
+                $repoFolder = $extractDir . '/' . $folder;
+                break;
+            }
+        }
+        if (!$repoFolder) {
+            echo json_encode(['ok' => false, 'error' => 'Failed to find extracted repository folder.']);
+            exit;
+        }
+
+        // Function to move files recursively
+        function move_recursive($src, $dst) {
+            if (is_dir($src)) {
+                if (!is_dir($dst)) mkdir($dst, 0755, true);
+                $files = scandir($src);
+                foreach ($files as $file) {
+                    if ($file !== '.' && $file !== '..') {
+                        move_recursive($src . '/' . $file, $dst . '/' . $file);
+                    }
+                }
+                rmdir($src);
+            } else {
+                rename($src, $dst);
+            }
+        }
+
+        // Move files to root directory
+        $files = scandir($repoFolder);
+        foreach ($files as $file) {
+            if ($file !== '.' && $file !== '..') {
+                $src = $repoFolder . '/' . $file;
+                $dst = __DIR__ . '/../' . $file;
+                move_recursive($src, $dst);
+            }
+        }
+
+        // Clean up
+        rmdir($repoFolder);
+        rmdir($extractDir);
+
+        echo json_encode(['ok' => true, 'message' => 'Updated successfully.']);
         exit;
     }
 
