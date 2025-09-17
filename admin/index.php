@@ -155,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $pdo->beginTransaction();
         try {
             $stm = $pdo->prepare("INSERT INTO packages (tracking_number, title, last_lat, last_lng, last_address, status, image_path, arriving, destination, delivery_option, description, created_at, updated_at)
-                                  VALUES (?,?,?,?,?, 'active', ?, ?, ?, ?, ?, ?, ?)");
+                                  VALUES (?,?,?,?,?, 'created', ?, ?, ?, ?, ?, ?, ?)");
             $stm->execute([$tracking, $title, $lat, $lng, $address ?: null, $imagePath, $arriving, $destination, $deliveryOption, $description, $now, $now]);
 
             $pid = (int)$pdo->lastInsertId();
@@ -195,6 +195,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stm2 = $pdo->prepare("INSERT INTO locations (package_id, lat, lng, address, note, created_at)
                                    VALUES (?,?,?,?,?, ?)");
             $stm2->execute([$id, $lat, $lng, $address ?: null, $note ?: 'Moved', $now]);
+
+            // Auto status update: in_transit or delivered if near destination
+            $newStatus = 'in_transit';
+            // fetch destination
+            $stm3 = $pdo->prepare("SELECT destination FROM packages WHERE id = ?");
+            $stm3->execute([$id]);
+            $rowDest = $stm3->fetch();
+            if ($rowDest && !empty($rowDest['destination'])) {
+                $destQ = trim((string)$rowDest['destination']);
+                // Geocode destination
+                $url = 'https://nominatim.openstreetmap.org/search?format=json&q=' . urlencode($destQ);
+                $ctx = stream_context_create(['http' => ['header' => "User-Agent: OpenParcelTracker\r\nAccept: application/json\r\n", 'timeout' => 5]]);
+                $resp = @file_get_contents($url, false, $ctx);
+                if ($resp) {
+                    $arr = json_decode($resp, true);
+                    if (is_array($arr) && count($arr) > 0) {
+                        $dlat = (float)$arr[0]['lat'];
+                        $dlng = (float)$arr[0]['lon'];
+                        $toRad = fn($x)=>$x * M_PI / 180;
+                        $R = 6371; // km
+                        $dLat = $toRad($dlat - $lat);
+                        $dLng = $toRad($dlng - $lng);
+                        $a = sin($dLat/2)**2 + cos($toRad($lat)) * cos($toRad($dlat)) * sin($dLng/2)**2;
+                        $c = 2 * atan2(sqrt($a), sqrt(1-$a));
+                        $distKm = $R * $c;
+                        if ($distKm <= 5) { $newStatus = 'delivered'; }
+                    }
+                }
+            }
+            $stm4 = $pdo->prepare("UPDATE packages SET status=?, updated_at=? WHERE id=?");
+            $stm4->execute([$newStatus, $now, $id]);
+
             $pdo->commit();
 
             echo json_encode(['ok'=>true]);

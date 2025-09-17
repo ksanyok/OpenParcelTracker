@@ -114,6 +114,17 @@ $version_info = checkVersion();
   .update-notice{background: linear-gradient(90deg, #fff7cc, #ffeab3); color:#7c5a00; padding: 10px; text-align: center; border: 1px solid #ffd34d; margin: 12px 20px; border-radius:12px; box-shadow: var(--shadow);} 
 
   @media (max-width: 640px){ header{padding:14px 16px} header h1{font-size:18px} input[type=text]{min-width: 0; width: 100%;} .field{align-items:stretch} button{width:100%} }
+
+  /* Progress bar styles */
+  .progress-card{background:var(--card-bg); border:1px solid var(--card-border); border-radius:18px; padding:16px; box-shadow:var(--shadow); backdrop-filter: blur(12px) saturate(120%);} 
+  .progress{position:relative; height:14px; border-radius:999px; background:rgba(0,0,0,0.06); overflow:hidden; border:1px solid rgba(0,0,0,0.06)}
+  .progress-fill{position:absolute; left:0; top:0; bottom:0; width:0; background:linear-gradient(90deg, var(--brand-red), #ff7a00, var(--brand-yellow)); box-shadow: inset 0 -1px 2px rgba(0,0,0,0.12)}
+  .progress-fill::after{content:""; position:absolute; inset:0; background-image:linear-gradient( -45deg, rgba(255,255,255,.25) 25%, rgba(255,255,255,0) 25%, rgba(255,255,255,0) 50%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.25) 75%, rgba(255,255,255,0) 75%, rgba(255,255,255,0) ); background-size:28px 28px; animation: move 1.2s linear infinite; opacity:.4 }
+  @keyframes move { to { background-position: 28px 0; } }
+  .status-badge{display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; border:1px solid rgba(0,0,0,0.08)}
+  .status-created{background:linear-gradient(180deg, #fff, #fff3c4); color:#7c5a00; border-color:#ffd34d}
+  .status-in_transit{background:linear-gradient(180deg, #ffe0e2, #ffd3d6); color:#8b1119; border-color:#f2a3aa}
+  .status-delivered{background:linear-gradient(180deg, #e7f7eb, #d9f1e0); color:#176b3a; border-color:#a7e0b9}
 </style>
 </head>
 <body>
@@ -171,7 +182,24 @@ $version_info = checkVersion();
         <?php if (!empty($pkg['image_path'])): ?>
           <img src="<?=h((string)$pkg['image_path'])?>" alt="Image" style="max-width:300px; margin-top:10px; border-radius:12px; box-shadow: var(--shadow);">
         <?php endif; ?>
+        <p><strong>Status:</strong> <span class="status-badge status-<?=h((string)$pkg['status'])?>" id="statusText"><?=h((string)($pkg['status'] ?: ''))?></span></p>
       </div>
+    </div>
+  </div>
+
+  <!-- Progress widget -->
+  <div id="progressCard" class="progress-card" style="margin-bottom:16px; display:none;">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-timer-flash-line"></i> Route progress</strong>
+      <span class="status-badge" id="statusBadge"></span>
+    </div>
+    <div class="progress" style="margin-top:10px;">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="row" style="justify-content:space-between; margin-top:8px;">
+      <span id="startLabel" class="muted">Start</span>
+      <span class="muted">≈ <span id="totalKm">0</span> km</span>
+      <span id="destLabel" class="muted">Destination</span>
     </div>
   </div>
 
@@ -213,6 +241,7 @@ $version_info = checkVersion();
   <script>
     (function(){
       const pkg = <?=json_encode($pkg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)?>;
+      const historyArr = <?=json_encode($history, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)?>;
       const hasPoint = pkg.last_lat !== null && pkg.last_lng !== null;
 
       const map = L.map('map');
@@ -221,18 +250,114 @@ $version_info = checkVersion();
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
+      function toRad(x){ return x * Math.PI / 180; }
+      function haversine(a,b){
+        if(!a || !b) return 0;
+        const R=6371; // km
+        const dLat=toRad(b[0]-a[0]);
+        const dLng=toRad(b[1]-a[1]);
+        const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.sin(dLng/2)**2;
+        return 2*R*Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+      }
+      async function geocode(q){
+        if(!q) return null;
+        try{
+          const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q), { headers:{ 'Accept':'application/json' }});
+          const arr = await r.json();
+          if(!arr.length) return null;
+          return [parseFloat(arr[0].lat), parseFloat(arr[0].lon)];
+        }catch{ return null; }
+      }
+
+      // markers
+      const boundsPts = [];
       if (hasPoint) {
         const m = L.marker([pkg.last_lat, pkg.last_lng]).addTo(map);
         const addr = pkg.last_address ? `<br><small>${pkg.last_address}</small>` : '';
         m.bindPopup(`<b>${pkg.tracking_number}</b>${addr}`);
-        map.setView([pkg.last_lat, pkg.last_lng], 13);
-      } else {
-        map.setView([31.0461, 34.8516], 7); // Israel area as neutral default
+        boundsPts.push([pkg.last_lat, pkg.last_lng]);
       }
+
+      // Plot history points + path
+      if (Array.isArray(historyArr) && historyArr.length) {
+        const pathPts = historyArr.slice().reverse().map(r => [parseFloat(r.lat), parseFloat(r.lng)]);
+        for (const p of pathPts) {
+          L.circleMarker(p, { radius:4, color:'#D40511', weight:1, fillColor:'#FFCC00', fillOpacity:0.8 }).addTo(map);
+          boundsPts.push(p);
+        }
+        if (pathPts.length >= 2) {
+          L.polyline(pathPts, { color:'#D40511', weight:3, opacity:0.65 }).addTo(map);
+        }
+      }
+
+      // Progress + start/dest route
+      (async ()=>{
+        const startQ = (pkg.arriving||'').trim();
+        const destQ  = (pkg.destination||'').trim();
+        if (!startQ || !destQ) {
+          if(boundsPts.length){ map.fitBounds(boundsPts, { padding:[30,30] }); } else { map.setView([31.0461, 34.8516], 7); }
+          return;
+        }
+        const startLL = await geocode(startQ);
+        const destLL  = await geocode(destQ);
+        if (startLL) { boundsPts.push(startLL); }
+        if (destLL)  { boundsPts.push(destLL); }
+
+        // Fancy icons
+        const startIcon = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#16a34a;border:2px solid #0f7a37;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
+        const destIcon  = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;border:2px solid #b91c1c;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
+        if (startLL) L.marker(startLL, {icon:startIcon}).addTo(map).bindTooltip('Start', {permanent:false});
+        if (destLL)  L.marker(destLL,  {icon:destIcon}).addTo(map).bindTooltip('Destination', {permanent:false});
+        if (startLL && destLL) {
+          L.polyline([startLL, destLL], { color:'#111', weight:3, opacity:0.5, dashArray:'6 6' }).addTo(map);
+        }
+
+        // Progress compute
+        const totalKm = (startLL && destLL) ? haversine(startLL, destLL) : 0;
+        const curLL = hasPoint ? [pkg.last_lat, pkg.last_lng] : null;
+        let progress = 0;
+        if (curLL && totalKm > 0) {
+          let done = haversine(startLL, curLL);
+          let toDest = haversine(curLL, destLL);
+          if (toDest <= 5) progress = 100; else progress = Math.max(0, Math.min(100, (done/totalKm)*100));
+        }
+        // Update UI
+        const pc = document.getElementById('progressCard');
+        const pf = document.getElementById('progressFill');
+        const tkm = document.getElementById('totalKm');
+        const sl  = document.getElementById('startLabel');
+        const dl  = document.getElementById('destLabel');
+        const sb  = document.getElementById('statusBadge');
+        if (pc && pf && tkm){
+          pc.style.display = 'block';
+          pf.style.width = progress.toFixed(0) + '%';
+          pf.title = progress.toFixed(0) + '%';
+          tkm.textContent = Math.round(totalKm);
+          sl.textContent = startQ;
+          dl.textContent = destQ;
+          const st = (pkg.status||'').toLowerCase();
+          sb.textContent = st || (progress>=100?'delivered': (progress>0?'in_transit':'created'));
+          sb.className = 'status-badge ' + (st?('status-'+st): (progress>=100?'status-delivered': (progress>0?'status-in_transit':'status-created')));
+        }
+
+        if (boundsPts.length) map.fitBounds(boundsPts, { padding:[30,30] }); else map.setView([31.0461, 34.8516], 7);
+      })();
     })();
   </script>
   <?php endif; ?>
 </main>
 <?php require_once __DIR__ . '/footer.php'; ?>
+<script>
+  (function(){
+    const footer = document.querySelector('footer');
+    function adjustPad(){
+      if(!footer) return;
+      const h = footer.offsetHeight || 0;
+      document.body.style.paddingBottom = (h + 24) + 'px';
+    }
+    window.addEventListener('load', adjustPad);
+    window.addEventListener('resize', adjustPad);
+  })();
+</script>
 </body>
 </html>
