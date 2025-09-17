@@ -504,10 +504,11 @@ $version_info = $logged ? checkVersion() : null;
 
   @media (max-width: 960px){ .grid-2{grid-template-columns: 1fr;} }
 
-  /* Edit panel */
-  #editPanel{ position:fixed; right:16px; bottom:96px; width:360px; max-width:92vw; display:none; }
-  #editPanel .thumb{ width:100%; max-height:180px; object-fit:cover; border-radius:10px; border:1px solid var(--border); }
-  .tag{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; border:1px dashed var(--border); background:#fff; font-size:12px; }
+  /* Modal edit dialog */
+  .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,0.35); z-index:1000; padding:16px }
+  .modal.show{ display:grid }
+  .modal-dialog{ width:min(760px,96vw); max-height:calc(100vh - 120px); overflow:auto; }
+  @media (max-width: 640px){ .modal-dialog{ max-height:calc(100vh - 40px); } }
 </style>
 </head>
 <body>
@@ -630,42 +631,52 @@ $version_info = $logged ? checkVersion() : null;
   </div>
 
   <!-- Edit panel -->
-  <div id="editPanel" class="card">
-    <div class="row" style="justify-content:space-between; align-items:center;">
-      <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-edit-2-line"></i> Edit package</strong>
-      <button id="editClose" style="background:#eee; color:#222; box-shadow:none;"><i class="ri-close-line"></i> Close</button>
-    </div>
-    <div id="editBody" class="grid" style="margin-top:10px;">
-      <div class="tag"><i class="ri-hashtag"></i><span id="editTracking"></span></div>
-      <label>Title
-        <div class="input-wrap"><i class="ri-edit-line"></i><input type="text" id="editTitle" class="plain"></div>
-      </label>
-      <label>Start (from)
-        <div class="input-wrap"><i class="ri-flag-2-line"></i><input type="text" id="editArriving" placeholder="City / address" class="plain"></div>
-      </label>
-      <label>Destination
-        <div class="input-wrap"><i class="ri-map-pin-2-line"></i><input type="text" id="editDestination" placeholder="City / address" class="plain"></div>
-      </label>
-      <label>Delivery option
-        <div class="input-wrap"><i class="ri-truck-line"></i><input type="text" id="editDelivery" class="plain"></div>
-      </label>
-      <label>Status
-        <div class="input-wrap"><i class="ri-alert-line"></i><input type="text" id="editStatus" class="plain" placeholder="e.g., active, delivered"></div>
-      </label>
-      <label>Description
-        <div class="textarea-wrap"><textarea id="editDescription" placeholder="Details"></textarea></div>
-      </label>
-      <div>
-        <img id="editThumb" class="thumb" alt="Image" style="display:none;">
-        <div class="row" style="margin-top:8px; align-items:center;">
-          <input type="file" id="editImage" accept="image/*">
-          <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
-        </div>
+  <div id="editModal" class="modal">
+    <div class="modal-dialog card">
+      <div class="row" style="justify-content:space-between; align-items:center; position:sticky; top:0; background:inherit; padding-bottom:8px; z-index:1;">
+        <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-edit-2-line"></i> Edit package</strong>
+        <button id="editClose" style="background:#eee; color:#222; box-shadow:none;"><i class="ri-close-line"></i> Close</button>
       </div>
-      <p class="hint">On the map: start and destination are highlighted with a dashed route.</p>
+      <div id="editBody" class="grid" style="margin-top:10px;">
+        <div class="tag"><i class="ri-hashtag"></i><span id="editTracking"></span></div>
+        <label>Title
+          <div class="input-wrap"><i class="ri-edit-line"></i><input type="text" id="editTitle" class="plain"></div>
+        </label>
+        <label>Start (from)
+          <div class="input-wrap"><i class="ri-flag-2-line"></i><input type="text" id="editArriving" placeholder="City / address" class="plain"></div>
+        </label>
+        <label>Destination
+          <div class="input-wrap"><i class="ri-map-pin-2-line"></i><input type="text" id="editDestination" placeholder="City / address" class="plain"></div>
+        </label>
+        <label>Delivery option
+          <div class="input-wrap"><i class="ri-truck-line"></i><input type="text" id="editDelivery" class="plain"></div>
+        </label>
+        <label>Status
+          <div class="input-wrap">
+            <i class="ri-alert-line"></i>
+            <select id="editStatus" class="plain" style="background:transparent; border:0; outline:none; min-width:160px; padding:0;">
+              <option value="">—</option>
+              <option value="created">Created</option>
+              <option value="in_transit">In transit</option>
+              <option value="delivered">Delivered</option>
+              <option value="active">Active (legacy)</option>
+            </select>
+          </div>
+        </label>
+        <label>Description
+          <div class="textarea-wrap"><textarea id="editDescription" placeholder="Details"></textarea></div>
+        </label>
+        <div>
+          <img id="editThumb" class="thumb" alt="Image" style="display:none; width:100%; max-height:220px; object-fit:cover; border-radius:10px; border:1px solid var(--border);">
+          <div class="row" style="margin-top:8px; align-items:center;">
+            <input type="file" id="editImage" accept="image/*">
+            <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
+          </div>
+        </div>
+        <p class="hint">On the map: start and destination are highlighted with a dashed route.</p>
+      </div>
     </div>
   </div>
-
 
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -970,18 +981,18 @@ $version_info = $logged ? checkVersion() : null;
       if(layers.length){ map.fitBounds(layers, { padding:[30,30] }); }
     }
 
-    // Edit panel logic
-    const editPanel = $('#editPanel');
-    const editClose = $('#editClose');
-    const editTitle = $('#editTitle');
-    const editArriving = $('#editArriving');
-    const editDestination = $('#editDestination');
-    const editDelivery = $('#editDelivery');
-    const editStatus = $('#editStatus');
-    const editDescription = $('#editDescription');
-    const editImage = $('#editImage');
-    const editThumb = $('#editThumb');
-    const editTracking = $('#editTracking');
+    // Edit panel logic (modal)
+    const editModal = document.getElementById('editModal');
+    const editClose = document.getElementById('editClose');
+    const editTitle = document.getElementById('editTitle');
+    const editArriving = document.getElementById('editArriving');
+    const editDestination = document.getElementById('editDestination');
+    const editDelivery = document.getElementById('editDelivery');
+    const editStatus = document.getElementById('editStatus');
+    const editDescription = document.getElementById('editDescription');
+    const editImage = document.getElementById('editImage');
+    const editThumb = document.getElementById('editThumb');
+    const editTracking = document.getElementById('editTracking');
     let editId = null;
 
     window.openEdit = async function(id){
@@ -994,17 +1005,19 @@ $version_info = $logged ? checkVersion() : null;
       editArriving.value = d.arriving || '';
       editDestination.value = d.destination || '';
       editDelivery.value = d.delivery_option || '';
-      editStatus.value = d.status || '';
+      editStatus.value = (d.status || '').toLowerCase();
       editDescription.value = d.description || '';
       if(d.image_path){ editThumb.src = '../' + d.image_path; editThumb.style.display = 'block'; } else { editThumb.style.display = 'none'; }
-      editPanel.style.display = 'block';
+      editModal.classList.add('show');
       drawRouteFor(d);
     }
 
-    function closeEdit(){ editPanel.style.display = 'none'; clearRoute(); editId=null; editImage.value=''; }
-    editClose.addEventListener('click', closeEdit);
+    function closeEdit(){ editModal.classList.remove('show'); clearRoute(); editId=null; editImage.value=''; }
+    editClose?.addEventListener('click', closeEdit);
+    editModal?.addEventListener('click', (e)=>{ if(e.target === editModal) closeEdit(); });
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && editModal.classList.contains('show')) closeEdit(); });
 
-    $('#editSave').addEventListener('click', async ()=>{
+    document.getElementById('editSave').addEventListener('click', async ()=>{
       if(!editId) return;
       const fd = new FormData();
       fd.append('action','updatePackage');

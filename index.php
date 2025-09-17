@@ -350,13 +350,28 @@ $version_info = checkVersion();
 <script>
   (function(){
     const footer = document.querySelector('footer');
-    function adjustPad(){
-      if(!footer) return;
-      const h = footer.offsetHeight || 0;
-      document.body.style.paddingBottom = (h + 24) + 'px';
+    const mainEl = document.querySelector('main');
+    if(!footer) return;
+    function applyPad(){
+      const h = footer.getBoundingClientRect().height || 0;
+      document.body.style.paddingBottom = (h + 16) + 'px';
+      if (mainEl) mainEl.style.marginBottom = (h + 16) + 'px';
     }
-    window.addEventListener('load', adjustPad);
-    window.addEventListener('resize', adjustPad);
+    // Initial + events
+    applyPad();
+    window.addEventListener('load', applyPad, { passive:true });
+    window.addEventListener('resize', applyPad, { passive:true });
+    window.addEventListener('orientationchange', applyPad, { passive:true });
+    document.addEventListener('DOMContentLoaded', applyPad, { passive:true });
+    // React to footer size changes
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(applyPad);
+      ro.observe(footer);
+    } else {
+      // Fallback periodic check (older browsers)
+      let lastH = 0;
+      setInterval(()=>{ const h = footer.offsetHeight || 0; if (h !== lastH){ lastH=h; applyPad(); } }, 500);
+    }
   })();
 </script>
 </body>
