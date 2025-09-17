@@ -14,6 +14,108 @@ require_once __DIR__ . '/../db.php';
  * - All AJAX endpoints in this file
  */
 
+// Security helpers for photo uploads
+function ensure_photos_dir(): void {
+    $dir = __DIR__ . '/../photos';
+    if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+    // Harden directory on Apache (no PHP/CGI execution). Harmless on other servers.
+    $ht = $dir . '/.htaccess';
+    if (!file_exists($ht)) {
+        @file_put_contents($ht, "Options -ExecCGI\nRemoveHandler .php .phtml .phar .cgi .fcgi .pl\nphp_flag engine off\n");
+    }
+    // Also add a minimal index.html to deter listing on servers where directory indexes are enabled
+    $idx = $dir . '/index.html';
+    if (!file_exists($idx)) {
+        @file_put_contents($idx, "<!doctype html><meta charset=\"utf-8\"><title>403</title>Access denied");
+    }
+}
+
+/**
+ * Validate and move uploaded image into photos/ under a sanitized base name.
+ * @param array $file  One of $_FILES[...] entries
+ * @param string $basename  Target filename base (without extension)
+ * @param string|null $oldPath Previously saved image_path (to clean up if extension changes)
+ * @return array { ok:bool, path?:string, error?:string }
+ */
+function handle_image_upload(array $file, string $basename, ?string $oldPath = null): array {
+    if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
+        return ['ok' => false, 'error' => 'Upload error'];
+    }
+    $maxBytes = 5 * 1024 * 1024; // 5 MB
+    if (!isset($file['size']) || (int)$file['size'] > $maxBytes) {
+        return ['ok' => false, 'error' => 'Image too large (max 5MB)'];
+    }
+    $tmp = $file['tmp_name'] ?? '';
+    if (!$tmp || !is_uploaded_file($tmp)) {
+        return ['ok' => false, 'error' => 'Invalid upload'];
+    }
+
+    // Sniff MIME using finfo (if available)
+    $mimeSniffed = '';
+    if (class_exists('finfo')) {
+        $fi = new finfo(FILEINFO_MIME_TYPE);
+        $mimeSniffed = (string)$fi->file($tmp);
+    }
+
+    // Basic image validation + dimensions
+    $info = @getimagesize($tmp);
+    if ($info === false) {
+        return ['ok' => false, 'error' => 'Not an image'];
+    }
+    $mimeFromImg = (string)($info['mime'] ?? '');
+
+    $allowed = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/webp' => 'webp',
+        'image/gif'  => 'gif',
+    ];
+    $mime = $mimeSniffed ?: $mimeFromImg;
+    if (!isset($allowed[$mime])) {
+        return ['ok' => false, 'error' => 'Unsupported image type'];
+    }
+
+    // Constrain pixel dimensions / megapixels to prevent abuse
+    $w = (int)($info[0] ?? 0);
+    $h = (int)($info[1] ?? 0);
+    if ($w <= 0 || $h <= 0) {
+        return ['ok' => false, 'error' => 'Corrupt image'];
+    }
+    $maxSide = 10000; // max dimension per side
+    $maxMP   = 40;    // max megapixels
+    if ($w > $maxSide || $h > $maxSide || ($w * $h) > ($maxMP * 1000000)) {
+        return ['ok' => false, 'error' => 'Image dimensions too large'];
+    }
+
+    $ext = $allowed[$mime];
+
+    // Sanitize basename (use tracking number, keep letters/digits/dash/underscore only)
+    $base = preg_replace('~[^A-Za-z0-9._-]+~', '_', $basename) ?: 'img';
+
+    ensure_photos_dir();
+    $dir = __DIR__ . '/../photos/';
+    $target = $dir . $base . '.' . $ext;
+
+    if (!@move_uploaded_file($tmp, $target)) {
+        return ['ok' => false, 'error' => 'Failed to store image'];
+    }
+    // Ensure reasonable file permissions
+    @chmod($target, 0644);
+
+    // Best effort: remove old file if extension changed
+    if ($oldPath) {
+        $oldRel = ltrim((string)$oldPath, '/');
+        if (strpos($oldRel, 'photos/') === 0) {
+            $oldAbs = __DIR__ . '/../' . $oldRel;
+            if (is_file($oldAbs) && realpath(dirname($oldAbs)) === realpath($dir) && $oldAbs !== $target) {
+                @unlink($oldAbs);
+            }
+        }
+    }
+
+    return ['ok' => true, 'path' => 'photos/' . basename($target)];
+}
+
 function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
 function is_logged_in(): bool {
@@ -126,25 +228,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $destination = trim((string)($_POST['destination'] ?? ''));
         $deliveryOption = trim((string)($_POST['delivery_option'] ?? ''));
         $description = trim((string)($_POST['description'] ?? ''));
-        $imagePath = ''; // Placeholder for image path handling
+        $imagePath = '';
 
-        // Handle Image Upload
-        if (isset($_FILES['newImage']) && $_FILES['newImage']['error'] === UPLOAD_ERR_OK) {
-            $uploadDir = __DIR__ . '/../photos/';
-            if (!is_dir($uploadDir)) {
-                mkdir($uploadDir, 0775, true);
-            }
-            $filename = basename($_FILES['newImage']['name']);
-            $extension = pathinfo($filename, PATHINFO_EXTENSION);
-            $newFilename = $tracking . '.' . $extension;
-            $targetPath = $uploadDir . $newFilename;
-
-            if (move_uploaded_file($_FILES['newImage']['tmp_name'], $targetPath)) {
-                $imagePath = 'photos/' . $newFilename;
-            } else {
-                echo json_encode(['ok'=>false,'error'=>'Failed to upload image']);
-                exit;
-            }
+        // Handle Image Upload (validated)
+        if (!empty($_FILES['newImage']['name'])) {
+            $res = handle_image_upload($_FILES['newImage'], $tracking, null);
+            if (!$res['ok']) { echo json_encode(['ok'=>false,'error'=>$res['error']]); exit; }
+            $imagePath = $res['path'];
         }
 
         if ($tracking === '') {
@@ -246,7 +336,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // New: get single package
     if ($action === 'getPackage') {
         $id = (int)($_POST['id'] ?? 0);
         if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
@@ -258,7 +347,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // New: update package details (with optional image)
     if ($action === 'updatePackage') {
         $id = (int)($_POST['id'] ?? 0);
         if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
@@ -277,19 +365,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $status = trim((string)($_POST['status'] ?? ''));
 
         $imagePath = $cur['image_path'] ?? '';
-        if (isset($_FILES['newImage']) && isset($_FILES['newImage']['tmp_name']) && $_FILES['newImage']['error'] === UPLOAD_ERR_OK) {
-            $uploadDir = __DIR__ . '/../photos/';
-            if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0775, true); }
-            $filename = basename($_FILES['newImage']['name']);
-            $extension = pathinfo($filename, PATHINFO_EXTENSION) ?: 'jpg';
-            $newFilename = $cur['tracking_number'] . '.' . $extension;
-            $targetPath = $uploadDir . $newFilename;
-            if (move_uploaded_file($_FILES['newImage']['tmp_name'], $targetPath)) {
-                $imagePath = 'photos/' . $newFilename;
-            } else {
-                echo json_encode(['ok'=>false,'error'=>'Failed to upload image']);
-                exit;
-            }
+        if (!empty($_FILES['newImage']['name'])) {
+            $res = handle_image_upload($_FILES['newImage'], (string)$cur['tracking_number'], $cur['image_path'] ?? null);
+            if (!$res['ok']) { echo json_encode(['ok'=>false,'error'=>$res['error']]); exit; }
+            $imagePath = $res['path'];
         }
 
         $now = date('Y-m-d H:i:s');
@@ -422,6 +501,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $id = (int)($_POST['id'] ?? 0);
         if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
 
+        // Fetch image path before delete
+        $stm0 = $pdo->prepare("SELECT image_path FROM packages WHERE id = ?");
+        $stm0->execute([$id]);
+        $cur = $stm0->fetch();
+        $imgToDelete = $cur['image_path'] ?? null;
+
         $pdo->beginTransaction();
         try {
             // Delete locations first due to foreign key
@@ -433,6 +518,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stm->execute([$id]);
 
             $pdo->commit();
+
+            // Best effort: remove image file on disk
+            if ($imgToDelete) {
+                $rel = ltrim((string)$imgToDelete, '/');
+                if (strpos($rel, 'photos/') === 0) {
+                    $abs = __DIR__ . '/../' . $rel;
+                    if (is_file($abs)) { @unlink($abs); }
+                }
+            }
+
             echo json_encode(['ok'=>true]);
         } catch (Throwable $e) {
             $pdo->rollBack();

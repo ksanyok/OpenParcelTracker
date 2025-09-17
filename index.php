@@ -89,7 +89,7 @@ $version_info = checkVersion();
   header h1{margin:0; font-size:20px; letter-spacing:.3px; display:flex; align-items:center; gap:8px}
   .brand-badge{display:inline-block; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.25);}  
 
-  main{position: relative; z-index:1; padding:20px; max-width:1100px; margin:0 auto; width:100%;}
+  main{position: relative; z-index:1; padding:20px; max-width:1100px; margin:0 auto; width:100%; flex:1;}
   footer{position: relative; z-index:3;}
 
   .card{background:var(--card-bg); border:1px solid var(--card-border); border-radius:18px; padding:16px; box-shadow:var(--shadow); backdrop-filter: blur(12px) saturate(120%); position:relative;}
@@ -137,7 +137,7 @@ $version_info = checkVersion();
   /* Responsive two-column layout for package view */
   .layout-2{ display:block; }
   @media (min-width: 900px){
-    .layout-2{ display:grid; grid-template-columns: 1.15fr 1fr; gap:16px; align-items:start; }
+    .layout-2{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:stretch; }
   }
   .info-grid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px 16px; }
   .info-grid p{ margin:6px 0; }
@@ -148,6 +148,11 @@ $version_info = checkVersion();
   .details-toggle > summary::-webkit-details-marker{ display:none; }
   .details-toggle > summary::before{ content: '▸'; display:inline-block; margin-right:6px; transition: transform .2s; }
   .details-toggle[open] > summary::before{ transform: rotate(90deg); }
+  /* Make right column map fill equal height as left column on desktop */
+  @media (min-width: 900px){
+    .col-right > .card{ height:100%; display:flex; flex-direction:column; }
+    .col-right #map{ flex:1 1 auto; height:auto; min-height:420px; }
+  }
 </style>
 </head>
 <body>
@@ -182,26 +187,26 @@ $version_info = checkVersion();
   <?php endif; ?>
 
   <?php if ($pkg): ?>
+  <!-- Progress widget placed above the two columns -->
+  <div id="progressCard" class="progress-card" style="margin-bottom:16px; display:none;">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-timer-flash-line"></i> Route progress</strong>
+      <span class="status-badge" id="statusBadge"></span>
+    </div>
+    <div class="progress" style="margin-top:10px;">
+      <div class="progress-fill" id="progressFill"></div>
+      <div class="progress-stops" id="progressStops"></div>
+      <div class="progress-cursor" id="progressCursor" title=""></div>
+    </div>
+    <div class="row" style="justify-content:space-between; margin-top:8px;">
+      <span id="startLabel" class="muted">Start</span>
+      <span class="muted">≈ <span id="totalKm">0</span> km</span>
+      <span id="destLabel" class="muted">Destination</span>
+    </div>
+  </div>
+
   <div class="layout-2">
     <div class="col-left">
-      <!-- Progress widget moved up to keep visible on desktop -->
-      <div id="progressCard" class="progress-card" style="margin-bottom:16px; display:none;">
-        <div class="row" style="justify-content:space-between; align-items:center;">
-          <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-timer-flash-line"></i> Route progress</strong>
-          <span class="status-badge" id="statusBadge"></span>
-        </div>
-        <div class="progress" style="margin-top:10px;">
-          <div class="progress-fill" id="progressFill"></div>
-          <div class="progress-stops" id="progressStops"></div>
-          <div class="progress-cursor" id="progressCursor" title=""></div>
-        </div>
-        <div class="row" style="justify-content:space-between; margin-top:8px;">
-          <span id="startLabel" class="muted">Start</span>
-          <span class="muted">≈ <span id="totalKm">0</span> km</span>
-          <span id="destLabel" class="muted">Destination</span>
-        </div>
-      </div>
-
       <div class="card">
         <div class="info-grid">
           <p class="full"><strong>Tracking #:</strong> <span class="badge"><?=h($pkg['tracking_number'])?></span></p>
