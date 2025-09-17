@@ -2,10 +2,14 @@
 /**
  * Footer with version and last update info.
  */
+$host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? '');
+$host = preg_replace('/:\\d+$/', '', (string)$host);
+if ($host === '') { $host = 'this site'; }
+$year = date('Y');
 ?>
-<footer style="position:fixed; left:0; right:0; bottom:0; z-index:10; text-align:center; padding:14px 10px; background: rgba(255,255,255,0.9); backdrop-filter: blur(6px); border-top: 1px solid rgba(0,0,0,0.06);">
+<footer style="text-align:center; padding:14px 10px; background: rgba(255,255,255,0.9); backdrop-filter: blur(6px); border-top: 1px solid rgba(0,0,0,0.06);">
     <p style="margin:0; color:#0b0b0b;">
-        <span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#D40511;display:inline-block;"></span> Service developed by <a href="https://buyreadysite.com" target="_blank" style="color:#D40511; text-decoration:underline;">Buyreadysite.com</a></span>
+        &copy; <?=$year?> <?=htmlspecialchars($host, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')?>
         | OpenParcelTracker v<?= get_version() ?> | Last updated: <?= get_last_update() ?>
         <?php if (isset($_SESSION['uid'])): ?>
         | <a href="javascript:location.reload()" style="color:#D40511; text-decoration:underline;">Check for updates</a>

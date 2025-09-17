@@ -72,7 +72,7 @@ $version_info = checkVersion();
   :root{ --brand-yellow:#FFCC00; --brand-red:#D40511; --brand-red-dark:#b1040e; --text:#0b0b0b; --muted:#5b6470; --card-bg:rgba(255,255,255,0.55); --card-border:rgba(255,255,255,0.45); --shadow:0 20px 40px rgba(212,5,17,0.08); }
   *{box-sizing:border-box}
   html, body{height:100%}
-  body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:0; color:var(--text); min-height: 100vh; display: flex; flex-direction: column; background: #fff; padding-bottom: 96px;}
+  body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:0; color:var(--text); min-height: 100vh; display: flex; flex-direction: column; background: #fff; padding-bottom: 0;}
 
   /* Lively animated brand background + blobs */
   .bg-animated{ position:fixed; inset:0; overflow:hidden; z-index:0; pointer-events:none; background: radial-gradient(60vw 60vw at -10% -20%, rgba(255,204,0,0.35), rgba(255,204,0,0) 60%), radial-gradient(50vw 50vw at 110% 10%, rgba(212,5,17,0.25), rgba(212,5,17,0) 60%); filter: saturate(115%); }
@@ -130,6 +130,24 @@ $version_info = checkVersion();
   .progress-stop.past{ background: var(--brand-red); border-color: #b1040e; }
   .progress-stop.current{ background:#ffcd00; border-color:#e6b800; }
   .progress-stop.future{ background:#fff; border-color: rgba(0,0,0,0.2); }
+  .progress-stop .lbl{ position:absolute; bottom:14px; left:50%; transform:translateX(-50%); font-size:11px; color:#333; background:rgba(255,255,255,0.85); padding:2px 6px; border-radius:8px; border:1px solid rgba(0,0,0,0.08); white-space:nowrap; }
+  .progress-cursor{ position:absolute; top:50%; transform:translate(-50%,-50%); width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:10px solid #111; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)); }
+  .progress-cursor-label{ position:absolute; top:-22px; left:50%; transform:translateX(-50%); font-size:11px; color:#111; background:rgba(255,255,255,0.95); padding:2px 6px; border-radius:8px; border:1px solid rgba(0,0,0,0.08); white-space:nowrap; }
+
+  /* Responsive two-column layout for package view */
+  .layout-2{ display:block; }
+  @media (min-width: 900px){
+    .layout-2{ display:grid; grid-template-columns: 1.15fr 1fr; gap:16px; align-items:start; }
+  }
+  .info-grid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px 16px; }
+  .info-grid p{ margin:6px 0; }
+  .info-grid .full{ grid-column: 1 / -1; }
+  .pkg-img{ width:100%; max-height:220px; object-fit:cover; border-radius:12px; box-shadow: var(--shadow); }
+  .details-toggle{ margin-top:8px; }
+  .details-toggle > summary{ cursor:pointer; list-style:none; }
+  .details-toggle > summary::-webkit-details-marker{ display:none; }
+  .details-toggle > summary::before{ content: '▸'; display:inline-block; margin-right:6px; transition: transform .2s; }
+  .details-toggle[open] > summary::before{ transform: rotate(90deg); }
 </style>
 </head>
 <body>
@@ -164,53 +182,68 @@ $version_info = checkVersion();
   <?php endif; ?>
 
   <?php if ($pkg): ?>
-  <div class="card" style="margin-bottom:16px;">
-    <div class="row">
-      <div style="flex:1 1 320px;">
-        <p><strong>Tracking #:</strong> <span class="badge"><?=h($pkg['tracking_number'])?></span></p>
-        <p><strong>Title:</strong> <?=h((string)$pkg['title'])?></p>
-        <p><strong>Arriving:</strong> <?=h((string)$pkg['arriving'])?></p>
-        <p><strong>Destination:</strong> <?=h((string)$pkg['destination'])?></p>
-        <p><strong>Delivery option:</strong> <?=h((string)$pkg['delivery_option'])?></p>
-        <p><strong>Images and Description:</strong> <?=h((string)$pkg['description'])?></p>
-        <p class="muted">Updated: <?=h((string)$pkg['updated_at'])?></p>
+  <div class="layout-2">
+    <div class="col-left">
+      <!-- Progress widget moved up to keep visible on desktop -->
+      <div id="progressCard" class="progress-card" style="margin-bottom:16px; display:none;">
+        <div class="row" style="justify-content:space-between; align-items:center;">
+          <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-timer-flash-line"></i> Route progress</strong>
+          <span class="status-badge" id="statusBadge"></span>
+        </div>
+        <div class="progress" style="margin-top:10px;">
+          <div class="progress-fill" id="progressFill"></div>
+          <div class="progress-stops" id="progressStops"></div>
+          <div class="progress-cursor" id="progressCursor" title=""></div>
+        </div>
+        <div class="row" style="justify-content:space-between; margin-top:8px;">
+          <span id="startLabel" class="muted">Start</span>
+          <span class="muted">≈ <span id="totalKm">0</span> km</span>
+          <span id="destLabel" class="muted">Destination</span>
+        </div>
+      </div>
 
-        <?php if ($pkg['last_address']): ?>
-          <p><strong>Current address:</strong> <?=h((string)$pkg['last_address'])?></p>
-        <?php endif; ?>
-        <?php if ($pkg['last_lat'] !== null && $pkg['last_lng'] !== null): ?>
-          <p><strong>Coords:</strong> <?=h((string)$pkg['last_lat'])?>, <?=h((string)$pkg['last_lng'])?></p>
-        <?php else: ?>
-          <p class="muted">No coordinates yet.</p>
-        <?php endif; ?>
+      <div class="card">
+        <div class="info-grid">
+          <p class="full"><strong>Tracking #:</strong> <span class="badge"><?=h($pkg['tracking_number'])?></span></p>
+          <p><strong>Title:</strong> <?=h((string)$pkg['title'])?></p>
+          <p><strong>Delivery option:</strong> <?=h((string)$pkg['delivery_option'])?></p>
+          <p><strong>Status:</strong> <span class="status-badge status-<?=h((string)$pkg['status'])?>" id="statusText"><?=h((string)($pkg['status'] ?: ''))?></span></p>
+          <p><strong>Arriving:</strong> <?=h((string)$pkg['arriving'])?></p>
+          <p><strong>Destination:</strong> <?=h((string)$pkg['destination'])?></p>
+          <p class="full"><span class="muted">Updated: <?=h((string)$pkg['updated_at'])?></span></p>
 
-        <?php if (!empty($pkg['image_path'])): ?>
-          <img src="<?=h((string)$pkg['image_path'])?>" alt="Image" style="max-width:300px; margin-top:10px; border-radius:12px; box-shadow: var(--shadow);">
-        <?php endif; ?>
-        <p><strong>Status:</strong> <span class="status-badge status-<?=h((string)$pkg['status'])?>" id="statusText"><?=h((string)($pkg['status'] ?: ''))?></span></p>
+          <?php if ($pkg['last_address']): ?>
+            <p class="full"><strong>Current address:</strong> <?=h((string)$pkg['last_address'])?></p>
+          <?php endif; ?>
+
+          <?php if ($pkg['last_lat'] !== null && $pkg['last_lng'] !== null): ?>
+            <p><strong>Coords:</strong> <?=h((string)$pkg['last_lat'])?>, <?=h((string)$pkg['last_lng'])?></p>
+          <?php else: ?>
+            <p class="muted">No coordinates yet.</p>
+          <?php endif; ?>
+
+          <?php if (!empty($pkg['image_path'])): ?>
+            <div class="full"><img src="<?=h((string)$pkg['image_path'])?>" alt="Image" class="pkg-img"></div>
+          <?php endif; ?>
+
+          <?php if (!empty(trim((string)$pkg['description']))): ?>
+            <details class="details-toggle full">
+              <summary><strong>Details</strong></summary>
+              <div style="margin-top:6px; white-space:pre-wrap;"><?=h((string)$pkg['description'])?></div>
+            </details>
+          <?php endif; ?>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-right">
+      <div class="card" style="padding:0;">
+        <div id="map"></div>
       </div>
     </div>
   </div>
 
-  <!-- Progress widget -->
-  <div id="progressCard" class="progress-card" style="margin-bottom:16px; display:none;">
-    <div class="row" style="justify-content:space-between; align-items:center;">
-      <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-timer-flash-line"></i> Route progress</strong>
-      <span class="status-badge" id="statusBadge"></span>
-    </div>
-    <div class="progress" style="margin-top:10px;">
-      <div class="progress-fill" id="progressFill"></div>
-      <div class="progress-stops" id="progressStops"></div>
-    </div>
-    <div class="row" style="justify-content:space-between; margin-top:8px;">
-      <span id="startLabel" class="muted">Start</span>
-      <span class="muted">≈ <span id="totalKm">0</span> km</span>
-      <span id="destLabel" class="muted">Destination</span>
-    </div>
-  </div>
-
-  <div id="map"></div>
-
+  <!-- Movement history remains full-width below -->
   <div class="card" style="margin-top:16px;">
     <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-route-line"></i> Movement history</h3>
     <?php if (!$history): ?>
@@ -343,6 +376,7 @@ $version_info = checkVersion();
         const dl  = document.getElementById('destLabel');
         const sb  = document.getElementById('statusBadge');
         const ps  = document.getElementById('progressStops');
+        const pcursor = document.getElementById('progressCursor');
         if (pc && pf && tkm){
           pc.style.display = (startLL && destLL) ? 'block' : 'none';
           if (pc.style.display === 'block'){
@@ -351,7 +385,7 @@ $version_info = checkVersion();
             tkm.textContent = Math.round(totalKm);
             sl.textContent = startQ; dl.textContent = destQ;
 
-            // Render stop ticks
+            // Render stop ticks with labels and tooltips
             ps.innerHTML = '';
             if (totalKm > 0 && routeFull.length>=2){
               // cumulative distances for each route point
@@ -361,17 +395,44 @@ $version_info = checkVersion();
                 cum += haversine(routeFull[i-1], routeFull[i]);
                 cumList.push(cum);
               }
-              // Build ticks for each intermediate stop (excluding start(0) and dest(100))
-              // Identify indices corresponding to stops within routeFull: startLL (0), then stops (1..N), dest( last )
+              // Build metadata for stops from history (chronological order)
+              const histChrono = Array.isArray(historyArr) ? historyArr.slice().reverse() : [];
+              // For each intermediate point (exclude start=0 and dest=last)
               for (let idx=1; idx<routeFull.length-1; idx++){
                 const pct = (cumList[idx] / totalKm) * 100;
                 const dot = document.createElement('span');
                 dot.className = 'progress-stop future';
                 dot.style.left = pct + '%';
+                // Tooltip content
+                const hmeta = histChrono[idx-1] || {};
+                const tipParts = [];
+                tipParts.push('≈ ' + pct.toFixed(0) + '%');
+                if (hmeta.created_at) tipParts.push(hmeta.created_at);
+                if (hmeta.address) tipParts.push(hmeta.address);
+                if (hmeta.note) tipParts.push('Note: ' + hmeta.note);
+                dot.title = tipParts.join(' • ');
+                // Label above
+                const lbl = document.createElement('span');
+                lbl.className = 'lbl';
+                lbl.textContent = pct.toFixed(0) + '%';
+                dot.appendChild(lbl);
                 // decide past/current/future
                 if (pct < progress - 0.5) dot.className = 'progress-stop past';
                 else if (Math.abs(pct - progress) <= 0.5) dot.className = 'progress-stop current';
                 ps.appendChild(dot);
+              }
+              // Current position cursor (even if not exactly at stop)
+              if (pcursor){
+                pcursor.style.left = Math.max(0, Math.min(100, progress)) + '%';
+                pcursor.title = 'Now ≈ ' + progress.toFixed(0) + '%';
+                // label element
+                let lbl = pcursor.querySelector('.progress-cursor-label');
+                if (!lbl){
+                  lbl = document.createElement('span');
+                  lbl.className = 'progress-cursor-label';
+                  pcursor.appendChild(lbl);
+                }
+                lbl.textContent = 'Now ' + progress.toFixed(0) + '%';
               }
             }
 
@@ -387,32 +448,5 @@ $version_info = checkVersion();
   <?php endif; ?>
 </main>
 <?php require_once __DIR__ . '/footer.php'; ?>
-<script>
-  (function(){
-    const footer = document.querySelector('footer');
-    const mainEl = document.querySelector('main');
-    if(!footer) return;
-    function applyPad(){
-      const h = footer.getBoundingClientRect().height || 0;
-      document.body.style.paddingBottom = (h + 16) + 'px';
-      if (mainEl) mainEl.style.marginBottom = (h + 16) + 'px';
-    }
-    // Initial + events
-    applyPad();
-    window.addEventListener('load', applyPad, { passive:true });
-    window.addEventListener('resize', applyPad, { passive:true });
-    window.addEventListener('orientationchange', applyPad, { passive:true });
-    document.addEventListener('DOMContentLoaded', applyPad, { passive:true });
-    // React to footer size changes
-    if (window.ResizeObserver) {
-      const ro = new ResizeObserver(applyPad);
-      ro.observe(footer);
-    } else {
-      // Fallback periodic check (older browsers)
-      let lastH = 0;
-      setInterval(()=>{ const h = footer.offsetHeight || 0; if (h !== lastH){ lastH=h; applyPad(); } }, 500);
-    }
-  })();
-</script>
 </body>
 </html>

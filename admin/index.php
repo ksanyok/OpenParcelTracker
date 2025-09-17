@@ -501,6 +501,10 @@ $version_info = $logged ? checkVersion() : null;
   .link{color:var(--primary); text-decoration:underline; cursor:pointer;}
   .right{margin-left:auto;}
   .hint{font-size:12px; color:var(--muted);} 
+  .btn-small{ padding:8px 10px; border-radius:10px; font-size:12px; box-shadow:0 3px 8px rgba(212,5,17,.18) }
+  .btn-ghost{ background:#fff; color:#111; box-shadow:none; border:1px solid var(--border); }
+  .pick-hint{ font-size:12px; color:var(--muted); margin-left:6px; }
+  .input-wrap.picking{ border-color: var(--brand-red); box-shadow:0 0 0 3px rgba(212,5,17,0.15); }
 
   @media (max-width: 960px){ .grid-2{grid-template-columns: 1fr;} }
 
@@ -592,11 +596,16 @@ $version_info = $logged ? checkVersion() : null;
         </div>
         <div class="row">
           <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-map-pin-line"></i><input type="text" id="newAddress" placeholder="Initial address (optional – will be geocoded)" class="plain" style="width:100%;"></div>
-          <div class="input-wrap"><i class="ri-send-plane-line"></i><input type="text" id="newArriving" placeholder="Arriving location" class="plain"></div>
+          <div class="input-wrap"><i class="ri-send-plane-line"></i><input type="text" id="newArriving" placeholder="Arriving (start)" class="plain"></div>
+          <button type="button" id="newArrPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick start</button>
         </div>
         <div class="row">
-          <div class="input-wrap"><i class="ri-flag-line"></i><input type="text" id="newDestination" placeholder="Destination" class="plain"></div>
-          <div class="input-wrap"><i class="ri-truck-line"></i><input type="text" id="newDeliveryOption" placeholder="Delivery option" class="plain"></div>
+          <div class="input-wrap"><i class="ri-flag-line"></i><input type="text" id="newDestination" placeholder="Destination (end)" class="plain"></div>
+          <button type="button" id="newDestPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick destination</button>
+          <div class="pick-hint">You can set start/end by address or pick on the map.</div>
+        </div>
+        <div class="row">
+          <div class="input-wrap" style="flex:1 1 260px;"><i class="ri-truck-line"></i><input type="text" id="newDeliveryOption" placeholder="Delivery option (optional)" class="plain"></div>
         </div>
         <div class="row" style="align-items:flex-start;">
           <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="newDescription" placeholder="Images and Description"></textarea></div>
@@ -644,9 +653,11 @@ $version_info = $logged ? checkVersion() : null;
         </label>
         <label>Start (from)
           <div class="input-wrap"><i class="ri-flag-2-line"></i><input type="text" id="editArriving" placeholder="City / address" class="plain"></div>
+          <button type="button" id="editArrPickBtn" class="btn-small btn-ghost" style="margin-top:6px; width:max-content;"><i class="ri-focus-2-line"></i> Pick start on map</button>
         </label>
         <label>Destination
           <div class="input-wrap"><i class="ri-map-pin-2-line"></i><input type="text" id="editDestination" placeholder="City / address" class="plain"></div>
+          <button type="button" id="editDestPickBtn" class="btn-small btn-ghost" style="margin-top:6px; width:max-content;"><i class="ri-focus-2-line"></i> Pick destination on map</button>
         </label>
         <label>Delivery option
           <div class="input-wrap"><i class="ri-truck-line"></i><input type="text" id="editDelivery" class="plain"></div>
@@ -721,15 +732,93 @@ $version_info = $logged ? checkVersion() : null;
     }).addTo(map);
     map.setView([31.0461, 34.8516], 7);
 
-    // Enable adding a new draggable marker by clicking on the map
-    let tempMarker = null;
-    map.on('click', (e) => {
-      // Remove previous temp marker if any
-      if (tempMarker) {
-        map.removeLayer(tempMarker);
-        tempMarker = null;
+    // Picking Start/Destination on map
+    const pickState = { active:false, target:null, ctx:null };
+    let pickStartMarker = null, pickDestMarker = null, pickRoute = null;
+    const startIconPick = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#16a34a;border:2px solid #0f7a37;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
+    const destIconPick  = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;border:2px solid #b91c1c;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
+
+    function targetInputSelector(){
+      if (!pickState.target || !pickState.ctx) return null;
+      if (pickState.ctx === 'new') return pickState.target === 'start' ? '#newArriving' : '#newDestination';
+      return pickState.target === 'start' ? '#editArriving' : '#editDestination';
+    }
+    function applyPickHighlight(on){
+      const sel = targetInputSelector();
+      if (!sel) return;
+      const wrap = document.querySelector(sel)?.closest('.input-wrap');
+      if (wrap) wrap.classList.toggle('picking', !!on);
+    }
+    function setPickMode(target, ctx){
+      pickState.active = true; pickState.target = target; pickState.ctx = ctx;
+      map.getContainer().style.cursor = 'crosshair';
+      applyPickHighlight(true);
+    }
+    function leavePickMode(){
+      applyPickHighlight(false);
+      pickState.active=false; pickState.target=null; pickState.ctx=null;
+      map.getContainer().style.cursor='';
+    }
+
+    async function reverseGeocode(lat, lng){
+      try{
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`;
+        const r = await fetch(url, { headers: { 'Accept':'application/json' }});
+        const j = await r.json();
+        return (j && (j.display_name || (j.address && (j.address.city || j.address.town || j.address.village)))) || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      }catch{ return `${lat.toFixed(6)}, ${lng.toFixed(6)}`; }
+    }
+
+    function updatePickPreview(){
+      if (pickRoute){ map.removeLayer(pickRoute); pickRoute=null; }
+      const pts=[];
+      if (pickStartMarker) pts.push(pickStartMarker.getLatLng());
+      if (pickDestMarker)  pts.push(pickDestMarker.getLatLng());
+      if (pts.length===2){ pickRoute = L.polyline(pts, { color:'#111', weight:3, opacity:0.6, dashArray:'6 6' }).addTo(map); }
+    }
+
+    async function handlePick(latlng){
+      if (pickState.target === 'start'){
+        if (!pickStartMarker){
+          pickStartMarker = L.marker(latlng, { draggable:true, icon:startIconPick }).addTo(map);
+          pickStartMarker.on('dragend', async ()=>{
+            const ll = pickStartMarker.getLatLng();
+            const addr = await reverseGeocode(ll.lat, ll.lng);
+            if (pickState.ctx === 'new') $('#newArriving').value = addr; else $('#editArriving').value = addr;
+            updatePickPreview();
+          });
+        } else { pickStartMarker.setLatLng(latlng); }
+        const addr = await reverseGeocode(latlng.lat, latlng.lng);
+        if (pickState.ctx === 'new') $('#newArriving').value = addr; else $('#editArriving').value = addr;
+      } else if (pickState.target === 'dest'){
+        if (!pickDestMarker){
+          pickDestMarker = L.marker(latlng, { draggable:true, icon:destIconPick }).addTo(map);
+          pickDestMarker.on('dragend', async ()=>{
+            const ll = pickDestMarker.getLatLng();
+            const addr = await reverseGeocode(ll.lat, ll.lng);
+            if (pickState.ctx === 'new') $('#newDestination').value = addr; else $('#editDestination').value = addr;
+            updatePickPreview();
+          });
+        } else { pickDestMarker.setLatLng(latlng); }
+        const addr = await reverseGeocode(latlng.lat, latlng.lng);
+        if (pickState.ctx === 'new') $('#newDestination').value = addr; else $('#editDestination').value = addr;
       }
-      // Create a draggable temp marker at click position
+      updatePickPreview();
+      leavePickMode();
+    }
+
+    $('#newArrPickBtn')?.addEventListener('click', ()=> setPickMode('start','new'));
+    $('#newDestPickBtn')?.addEventListener('click', ()=> setPickMode('dest','new'));
+    $('#editArrPickBtn')?.addEventListener('click', ()=> setPickMode('start','edit'));
+    $('#editDestPickBtn')?.addEventListener('click', ()=> setPickMode('dest','edit'));
+
+    // Replace map click handler to support pick mode vs create temp marker
+    let tempMarker = null;
+    map.off('click');
+    map.on('click', (e) => {
+      if (pickState.active) { handlePick(e.latlng); return; }
+      // Default behavior: new temp marker for quick create
+      if (tempMarker) { map.removeLayer(tempMarker); tempMarker = null; }
       tempMarker = L.marker(e.latlng, { draggable: true }).addTo(map);
       const saveHtml = `
         <div>
@@ -749,7 +838,7 @@ $version_info = $logged ? checkVersion() : null;
             if (!tracking) return;
             const title = prompt('Title (optional):') || '';
             const pos = tempMarker.getLatLng();
-            const imageFile = document.getElementById('newImage').files[0];
+            const imageFile = document.getElementById('newImage')?.files?.[0];
             const formData = new FormData();
             formData.append('action', 'addPackage');
             formData.append('tracking', tracking);
@@ -757,28 +846,41 @@ $version_info = $logged ? checkVersion() : null;
             formData.append('lat', pos.lat);
             formData.append('lng', pos.lng);
             formData.append('address', '');
-            formData.append('arriving', ''); // Populate as needed
-            formData.append('destination', ''); // Populate as needed
-            formData.append('delivery_option', ''); // Populate as needed
-            formData.append('description', ''); // Populate as needed
-            if (imageFile) {
-              formData.append('newImage', imageFile);
-            }
+            formData.append('arriving', document.getElementById('newArriving').value || '');
+            formData.append('destination', document.getElementById('newDestination').value || '');
+            formData.append('delivery_option', '');
+            formData.append('description', '');
+            if (imageFile) formData.append('newImage', imageFile);
             const j = await fetch('', { method: 'POST', body: formData }).then(r => r.json());
             if (!j.ok) { alert(j.error || 'Create failed'); return; }
-            map.removeLayer(tempMarker);
-            tempMarker = null;
-            await loadList();
+            map.removeLayer(tempMarker); tempMarker = null; await loadList();
           };
         }
-        if (mkCancel) {
-          mkCancel.onclick = () => {
-            map.removeLayer(tempMarker);
-            tempMarker = null;
-          };
-        }
+        if (mkCancel) { mkCancel.onclick = () => { map.removeLayer(tempMarker); tempMarker = null; }; }
       });
     });
+
+    function clearPickArtifacts(){
+      if (pickStartMarker){ map.removeLayer(pickStartMarker); pickStartMarker=null; }
+      if (pickDestMarker){ map.removeLayer(pickDestMarker); pickDestMarker=null; }
+      if (pickRoute){ map.removeLayer(pickRoute); pickRoute=null; }
+    }
+
+    // When opening edit modal, optionally draw preview for existing addresses
+    async function initEditPickPreview(d){
+      try{
+        clearPickArtifacts();
+        const geocode = async (q)=>{
+          if(!q) return null; const u='https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q);
+          const r = await fetch(u, { headers:{'Accept':'application/json'} }); const a = await r.json(); if(!a.length) return null; return [parseFloat(a[0].lat), parseFloat(a[0].lon)];
+        };
+        const s = await geocode(d.arriving||'');
+        const t = await geocode(d.destination||'');
+        if (s){ pickStartMarker = L.marker(s, { draggable:true, icon:startIconPick }).addTo(map); pickStartMarker.on('dragend', async ()=>{ const ll=pickStartMarker.getLatLng(); $('#editArriving').value = await reverseGeocode(ll.lat,ll.lng); updatePickPreview(); }); }
+        if (t){ pickDestMarker  = L.marker(t, { draggable:true, icon:destIconPick  }).addTo(map); pickDestMarker.on('dragend', async ()=>{ const ll=pickDestMarker.getLatLng();  $('#editDestination').value = await reverseGeocode(ll.lat,ll.lng); updatePickPreview(); }); }
+        updatePickPreview();
+      }catch{}
+    }
 
     const markers = new Map(); // id -> marker
     let currentData = [];
@@ -1010,9 +1112,10 @@ $version_info = $logged ? checkVersion() : null;
       if(d.image_path){ editThumb.src = '../' + d.image_path; editThumb.style.display = 'block'; } else { editThumb.style.display = 'none'; }
       editModal.classList.add('show');
       drawRouteFor(d);
+      initEditPickPreview(d); // add draggable start/dest markers and dashed line
     }
 
-    function closeEdit(){ editModal.classList.remove('show'); clearRoute(); editId=null; editImage.value=''; }
+    function closeEdit(){ editModal.classList.remove('show'); clearRoute(); clearPickArtifacts(); applyPickHighlight(false); editId=null; editImage.value=''; }
     editClose?.addEventListener('click', closeEdit);
     editModal?.addEventListener('click', (e)=>{ if(e.target === editModal) closeEdit(); });
     window.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && editModal.classList.contains('show')) closeEdit(); });
@@ -1050,7 +1153,7 @@ $version_info = $logged ? checkVersion() : null;
       const addr     = $('#newAddress').value.trim();
       const arriving = $('#newArriving').value.trim();
       const destination = $('#newDestination').value.trim();
-      const deliveryOption = $('#newDeliveryOption').value.trim();
+      const deliveryOption = $('#newDeliveryOption')?.value.trim() || '';
       const description = $('#newDescription').value.trim();
       const imageInput = $('#newImage');
       const imageFile = imageInput.files[0];
@@ -1094,7 +1197,7 @@ $version_info = $logged ? checkVersion() : null;
       $('#newAddress').value = '';
       $('#newArriving').value = '';
       $('#newDestination').value = '';
-      $('#newDeliveryOption').value = '';
+      if ($('#newDeliveryOption')) $('#newDeliveryOption').value = '';
       $('#newDescription').value = '';
       imageInput.value = '';
       await loadList();
