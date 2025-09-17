@@ -125,6 +125,11 @@ $version_info = checkVersion();
   .status-created{background:linear-gradient(180deg, #fff, #fff3c4); color:#7c5a00; border-color:#ffd34d}
   .status-in_transit{background:linear-gradient(180deg, #ffe0e2, #ffd3d6); color:#8b1119; border-color:#f2a3aa}
   .status-delivered{background:linear-gradient(180deg, #e7f7eb, #d9f1e0); color:#176b3a; border-color:#a7e0b9}
+  .progress-stops{ position:absolute; inset:0; pointer-events:none; }
+  .progress-stop{ position:absolute; top:50%; transform:translate(-50%,-50%); width:10px; height:10px; border-radius:50%; background:#fff; border:2px solid var(--brand-red); box-shadow:0 0 0 2px rgba(255,255,255,0.7) }
+  .progress-stop.past{ background: var(--brand-red); border-color: #b1040e; }
+  .progress-stop.current{ background:#ffcd00; border-color:#e6b800; }
+  .progress-stop.future{ background:#fff; border-color: rgba(0,0,0,0.2); }
 </style>
 </head>
 <body>
@@ -195,6 +200,7 @@ $version_info = checkVersion();
     </div>
     <div class="progress" style="margin-top:10px;">
       <div class="progress-fill" id="progressFill"></div>
+      <div class="progress-stops" id="progressStops"></div>
     </div>
     <div class="row" style="justify-content:space-between; margin-top:8px;">
       <span id="startLabel" class="muted">Start</span>
@@ -269,78 +275,112 @@ $version_info = checkVersion();
         }catch{ return null; }
       }
 
-      // markers
       const boundsPts = [];
-      if (hasPoint) {
-        const m = L.marker([pkg.last_lat, pkg.last_lng]).addTo(map);
-        const addr = pkg.last_address ? `<br><small>${pkg.last_address}</small>` : '';
-        m.bindPopup(`<b>${pkg.tracking_number}</b>${addr}`);
-        boundsPts.push([pkg.last_lat, pkg.last_lng]);
-      }
 
-      // Plot history points + path
-      if (Array.isArray(historyArr) && historyArr.length) {
-        const pathPts = historyArr.slice().reverse().map(r => [parseFloat(r.lat), parseFloat(r.lng)]);
-        for (const p of pathPts) {
-          L.circleMarker(p, { radius:4, color:'#D40511', weight:1, fillColor:'#FFCC00', fillOpacity:0.8 }).addTo(map);
-          boundsPts.push(p);
-        }
-        if (pathPts.length >= 2) {
-          L.polyline(pathPts, { color:'#D40511', weight:3, opacity:0.65 }).addTo(map);
-        }
-      }
-
-      // Progress + start/dest route
       (async ()=>{
         const startQ = (pkg.arriving||'').trim();
         const destQ  = (pkg.destination||'').trim();
-        if (!startQ || !destQ) {
-          if(boundsPts.length){ map.fitBounds(boundsPts, { padding:[30,30] }); } else { map.setView([31.0461, 34.8516], 7); }
-          return;
-        }
-        const startLL = await geocode(startQ);
-        const destLL  = await geocode(destQ);
-        if (startLL) { boundsPts.push(startLL); }
-        if (destLL)  { boundsPts.push(destLL); }
+        const startLL = startQ ? await geocode(startQ) : null;
+        const destLL  = destQ  ? await geocode(destQ)  : null;
 
-        // Fancy icons
+        // Build chronological stops from history
+        const stops = Array.isArray(historyArr) ? historyArr.slice().reverse().map(r=>[parseFloat(r.lat), parseFloat(r.lng)]) : [];
+        const curLL = (pkg.last_lat!==null && pkg.last_lng!==null) ? [pkg.last_lat, pkg.last_lng] : null;
+        // If no history but we have current point, treat it as the first stop
+        const hasHist = stops.length>0;
+        const currentIsLastStop = hasHist ? (Math.abs(stops[stops.length-1][0]-(curLL?curLL[0]:NaN))<1e-6 && Math.abs(stops[stops.length-1][1]-(curLL?curLL[1]:NaN))<1e-6) : false;
+        if (!hasHist && curLL) stops.push(curLL);
+
+        // Full planned route: start -> stops -> destination
+        const routeFull = [];
+        if (startLL) routeFull.push(startLL);
+        for (const s of stops) routeFull.push(s);
+        if (destLL) routeFull.push(destLL);
+
+        // Compute piecewise distances
+        function sumLegs(points){
+          let sum=0; for(let i=1;i<points.length;i++){ sum += haversine(points[i-1], points[i]); } return sum;
+        }
+        const totalKm = (routeFull.length>=2) ? sumLegs(routeFull) : (startLL&&destLL ? haversine(startLL,destLL) : 0);
+
+        // Distance done: start -> last stop (or 0 if none)
+        const traveledPts = [];
+        if (startLL) traveledPts.push(startLL);
+        for (const s of stops) traveledPts.push(s);
+        const doneKm = (traveledPts.length>=2) ? sumLegs(traveledPts) : 0;
+        const progress = (totalKm>0) ? Math.max(0, Math.min(100, (doneKm/totalKm)*100)) : 0;
+
+        // Map: draw start/dest markers
         const startIcon = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#16a34a;border:2px solid #0f7a37;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
         const destIcon  = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;border:2px solid #b91c1c;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
-        if (startLL) L.marker(startLL, {icon:startIcon}).addTo(map).bindTooltip('Start', {permanent:false});
-        if (destLL)  L.marker(destLL,  {icon:destIcon}).addTo(map).bindTooltip('Destination', {permanent:false});
-        if (startLL && destLL) {
-          L.polyline([startLL, destLL], { color:'#111', weight:3, opacity:0.5, dashArray:'6 6' }).addTo(map);
+        if (startLL) L.marker(startLL, {icon:startIcon}).addTo(map).bindTooltip('Start');
+        if (destLL)  L.marker(destLL,  {icon:destIcon}).addTo(map).bindTooltip('Destination');
+
+        // Full route dashed
+        if (routeFull.length>=2) {
+          L.polyline(routeFull, { color:'#111', weight:3, opacity:0.5, dashArray:'6 6' }).addTo(map);
+        }
+        // Traveled path solid red
+        if (traveledPts.length>=2) {
+          L.polyline(traveledPts, { color:'#D40511', weight:4, opacity:0.85 }).addTo(map);
+        }
+        // Mark each historical stop as small circle
+        for (let i=0;i<stops.length;i++){
+          L.circleMarker(stops[i], { radius:4, color:'#D40511', weight:1, fillColor:'#FFCC00', fillOpacity:0.9 }).addTo(map);
         }
 
-        // Progress compute
-        const totalKm = (startLL && destLL) ? haversine(startLL, destLL) : 0;
-        const curLL = hasPoint ? [pkg.last_lat, pkg.last_lng] : null;
-        let progress = 0;
-        if (curLL && totalKm > 0) {
-          let done = haversine(startLL, curLL);
-          let toDest = haversine(curLL, destLL);
-          if (toDest <= 5) progress = 100; else progress = Math.max(0, Math.min(100, (done/totalKm)*100));
+        // Include current and route points in bounds
+        for (const p of routeFull) boundsPts.push(p);
+        if (boundsPts.length) map.fitBounds(boundsPts, { padding:[30,30] }); else {
+          if (curLL) map.setView(curLL, 13); else map.setView([31.0461, 34.8516], 7);
         }
-        // Update UI
+
+        // Progress UI
         const pc = document.getElementById('progressCard');
         const pf = document.getElementById('progressFill');
         const tkm = document.getElementById('totalKm');
         const sl  = document.getElementById('startLabel');
         const dl  = document.getElementById('destLabel');
         const sb  = document.getElementById('statusBadge');
+        const ps  = document.getElementById('progressStops');
         if (pc && pf && tkm){
-          pc.style.display = 'block';
-          pf.style.width = progress.toFixed(0) + '%';
-          pf.title = progress.toFixed(0) + '%';
-          tkm.textContent = Math.round(totalKm);
-          sl.textContent = startQ;
-          dl.textContent = destQ;
-          const st = (pkg.status||'').toLowerCase();
-          sb.textContent = st || (progress>=100?'delivered': (progress>0?'in_transit':'created'));
-          sb.className = 'status-badge ' + (st?('status-'+st): (progress>=100?'status-delivered': (progress>0?'status-in_transit':'status-created')));
-        }
+          pc.style.display = (startLL && destLL) ? 'block' : 'none';
+          if (pc.style.display === 'block'){
+            pf.style.width = progress.toFixed(0) + '%';
+            pf.title = progress.toFixed(0) + '%';
+            tkm.textContent = Math.round(totalKm);
+            sl.textContent = startQ; dl.textContent = destQ;
 
-        if (boundsPts.length) map.fitBounds(boundsPts, { padding:[30,30] }); else map.setView([31.0461, 34.8516], 7);
+            // Render stop ticks
+            ps.innerHTML = '';
+            if (totalKm > 0 && routeFull.length>=2){
+              // cumulative distances for each route point
+              let cum = 0;
+              const cumList = [0];
+              for (let i=1;i<routeFull.length;i++){
+                cum += haversine(routeFull[i-1], routeFull[i]);
+                cumList.push(cum);
+              }
+              // Build ticks for each intermediate stop (excluding start(0) and dest(100))
+              // Identify indices corresponding to stops within routeFull: startLL (0), then stops (1..N), dest( last )
+              for (let idx=1; idx<routeFull.length-1; idx++){
+                const pct = (cumList[idx] / totalKm) * 100;
+                const dot = document.createElement('span');
+                dot.className = 'progress-stop future';
+                dot.style.left = pct + '%';
+                // decide past/current/future
+                if (pct < progress - 0.5) dot.className = 'progress-stop past';
+                else if (Math.abs(pct - progress) <= 0.5) dot.className = 'progress-stop current';
+                ps.appendChild(dot);
+              }
+            }
+
+            const st = (pkg.status||'').toLowerCase();
+            const autoSt = (progress>=100?'delivered': (progress>0?'in_transit':'created'));
+            sb.textContent = st || autoSt;
+            sb.className = 'status-badge ' + (st?('status-'+st) : (progress>=100?'status-delivered': (progress>0?'status-in_transit':'status-created')));
+          }
+        }
       })();
     })();
   </script>
