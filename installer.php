@@ -1,4 +1,6 @@
 <?php
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
 /**
  * OpenParcelTracker Auto-Installer
  * This script clones the latest stable version from the repository and sets up the database.
@@ -17,6 +19,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         die('All database fields are required for MySQL.');
     } elseif ($dbDriver === 'sqlite' && empty($dbName)) {
         die('Database name is required for SQLite.');
+    }
+
+    // For MySQL, create database if not exists
+    if ($dbDriver === 'mysql') {
+        try {
+            $pdo_temp = new PDO("mysql:host=$dbHost;charset=utf8mb4", $dbUser, $dbPass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            ]);
+            $pdo_temp->exec("CREATE DATABASE IF NOT EXISTS `$dbName` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        } catch (Exception $e) {
+            die('Failed to create database: ' . $e->getMessage());
+        }
     }
 
     // Create .env file
