@@ -214,6 +214,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    // New: get single package
+    if ($action === 'getPackage') {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
+        $stm = $pdo->prepare("SELECT * FROM packages WHERE id = ?");
+        $stm->execute([$id]);
+        $row = $stm->fetch();
+        if (!$row) { echo json_encode(['ok'=>false,'error'=>'Not found']); exit; }
+        echo json_encode(['ok'=>true,'data'=>$row], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // New: update package details (with optional image)
+    if ($action === 'updatePackage') {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
+
+        // Fetch current
+        $stm = $pdo->prepare("SELECT tracking_number, image_path FROM packages WHERE id = ?");
+        $stm->execute([$id]);
+        $cur = $stm->fetch();
+        if (!$cur) { echo json_encode(['ok'=>false,'error'=>'Not found']); exit; }
+
+        $title = trim((string)($_POST['title'] ?? ''));
+        $arriving = trim((string)($_POST['arriving'] ?? ''));
+        $destination = trim((string)($_POST['destination'] ?? ''));
+        $deliveryOption = trim((string)($_POST['delivery_option'] ?? ''));
+        $description = trim((string)($_POST['description'] ?? ''));
+        $status = trim((string)($_POST['status'] ?? ''));
+
+        $imagePath = $cur['image_path'] ?? '';
+        if (isset($_FILES['newImage']) && isset($_FILES['newImage']['tmp_name']) && $_FILES['newImage']['error'] === UPLOAD_ERR_OK) {
+            $uploadDir = __DIR__ . '/../photos/';
+            if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0775, true); }
+            $filename = basename($_FILES['newImage']['name']);
+            $extension = pathinfo($filename, PATHINFO_EXTENSION) ?: 'jpg';
+            $newFilename = $cur['tracking_number'] . '.' . $extension;
+            $targetPath = $uploadDir . $newFilename;
+            if (move_uploaded_file($_FILES['newImage']['tmp_name'], $targetPath)) {
+                $imagePath = 'photos/' . $newFilename;
+            } else {
+                echo json_encode(['ok'=>false,'error'=>'Failed to upload image']);
+                exit;
+            }
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $stm = $pdo->prepare("UPDATE packages SET title=?, arriving=?, destination=?, delivery_option=?, description=?, status=?, image_path=?, updated_at=? WHERE id=?");
+        $stm->execute([$title ?: null, $arriving ?: null, $destination ?: null, $deliveryOption ?: null, $description ?: null, $status ?: null, $imagePath ?: null, $now, $id]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
     if ($action === 'update') {
         // Download and extract the repository
         $repoUrl = 'https://github.com/ksanyok/OpenParcelTracker/archive/refs/heads/main.zip';
@@ -418,6 +471,11 @@ $version_info = $logged ? checkVersion() : null;
   .hint{font-size:12px; color:var(--muted);} 
 
   @media (max-width: 960px){ .grid-2{grid-template-columns: 1fr;} }
+
+  /* Edit panel */
+  #editPanel{ position:fixed; right:16px; bottom:96px; width:360px; max-width:92vw; display:none; }
+  #editPanel .thumb{ width:100%; max-height:180px; object-fit:cover; border-radius:10px; border:1px solid var(--border); }
+  .tag{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; border:1px dashed var(--border); background:#fff; font-size:12px; }
 </style>
 </head>
 <body>
@@ -539,6 +597,43 @@ $version_info = $logged ? checkVersion() : null;
     </div>
   </div>
 
+  <!-- Edit panel -->
+  <div id="editPanel" class="card">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-edit-2-line"></i> Edit package</strong>
+      <button id="editClose" style="background:#eee; color:#222; box-shadow:none;"><i class="ri-close-line"></i> Close</button>
+    </div>
+    <div id="editBody" class="grid" style="margin-top:10px;">
+      <div class="tag"><i class="ri-hashtag"></i><span id="editTracking"></span></div>
+      <label>Title
+        <div class="input-wrap"><i class="ri-edit-line"></i><input type="text" id="editTitle" class="plain"></div>
+      </label>
+      <label>Start (from)
+        <div class="input-wrap"><i class="ri-flag-2-line"></i><input type="text" id="editArriving" placeholder="City / address" class="plain"></div>
+      </label>
+      <label>Destination
+        <div class="input-wrap"><i class="ri-map-pin-2-line"></i><input type="text" id="editDestination" placeholder="City / address" class="plain"></div>
+      </label>
+      <label>Delivery option
+        <div class="input-wrap"><i class="ri-truck-line"></i><input type="text" id="editDelivery" class="plain"></div>
+      </label>
+      <label>Status
+        <div class="input-wrap"><i class="ri-alert-line"></i><input type="text" id="editStatus" class="plain" placeholder="e.g., active, delivered"></div>
+      </label>
+      <label>Description
+        <div class="textarea-wrap"><textarea id="editDescription" placeholder="Details"></textarea></div>
+      </label>
+      <div>
+        <img id="editThumb" class="thumb" alt="Image" style="display:none;">
+        <div class="row" style="margin-top:8px; align-items:center;">
+          <input type="file" id="editImage" accept="image/*">
+          <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
+        </div>
+      </div>
+      <p class="hint">On the map: start and destination are highlighted with a dashed route.</p>
+    </div>
+  </div>
+
 
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -655,6 +750,7 @@ $version_info = $logged ? checkVersion() : null;
           <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
             <button onclick="setByAddress(${row.id})">Set by address</button>
             <button onclick="showHistory(${row.id}, '${row.tracking_number.replace(/'/g, "\\'")}')">History</button>
+            <button onclick="openEdit(${row.id})">Edit</button>
           </div>
         </div>
       `;
@@ -680,7 +776,7 @@ $version_info = $logged ? checkVersion() : null;
           <td>${r.title ? r.title : ''}</td>
           <td>${coords}</td>
           <td>${r.updated_at}</td>
-          <td><span class="link" onclick="focusPkg(${r.id})">Focus</span> | <span class="link" onclick="deletePkg(${r.id})">Delete</span></td>
+          <td><span class="link" onclick="focusPkg(${r.id})">Focus</span> | <span class="link" onclick="openEdit(${r.id})">Edit</span> | <span class="link" onclick="deletePkg(${r.id})">Delete</span></td>
         `;
         tbody.appendChild(tr);
       }
@@ -802,6 +898,98 @@ $version_info = $logged ? checkVersion() : null;
       }
       $('#historyBox').style.display = 'block';
     }
+
+    // Route layers for start/destination visualization
+    let routeStart = null, routeDest = null, routeLine = null;
+    function clearRoute(){
+      if(routeStart){ map.removeLayer(routeStart); routeStart = null; }
+      if(routeDest){ map.removeLayer(routeDest); routeDest = null; }
+      if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
+    }
+
+    async function geocode(q){
+      if(!q) return null;
+      try{
+        const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q), { headers: { 'Accept':'application/json' }});
+        const arr = await r.json();
+        if(!arr.length) return null;
+        return [parseFloat(arr[0].lat), parseFloat(arr[0].lon)];
+      }catch{ return null; }
+    }
+
+    async function drawRouteFor(pkg){
+      clearRoute();
+      const startQ = pkg.arriving || '';
+      const destQ  = pkg.destination || '';
+      const startLL = await geocode(startQ);
+      const destLL  = await geocode(destQ);
+      const layers = [];
+      const startIcon = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#16a34a;border:2px solid #0f7a37;box-shadow:0 0 0 2px #fff"></div>' , iconSize:[22,22], iconAnchor:[11,11]});
+      const destIcon  = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;border:2px solid #b91c1c;box-shadow:0 0 0 2px #fff"></div>' , iconSize:[22,22], iconAnchor:[11,11]});
+
+      if(startLL){ routeStart = L.marker(startLL, {icon:startIcon}).addTo(map); layers.push(startLL); }
+      if(destLL){ routeDest  = L.marker(destLL,  {icon:destIcon}).addTo(map); layers.push(destLL); }
+      if(startLL && destLL){
+        routeLine = L.polyline([startLL, destLL], { color:'#111', weight:3, opacity:0.6, dashArray:'6 6' }).addTo(map);
+      }
+      // Fit bounds to include current position too if present
+      const cur = currentData.find(x=>x.id===pkg.id);
+      if(cur && cur.last_lat!==null && cur.last_lng!==null){ layers.push([cur.last_lat, cur.last_lng]); }
+      if(layers.length){ map.fitBounds(layers, { padding:[30,30] }); }
+    }
+
+    // Edit panel logic
+    const editPanel = $('#editPanel');
+    const editClose = $('#editClose');
+    const editTitle = $('#editTitle');
+    const editArriving = $('#editArriving');
+    const editDestination = $('#editDestination');
+    const editDelivery = $('#editDelivery');
+    const editStatus = $('#editStatus');
+    const editDescription = $('#editDescription');
+    const editImage = $('#editImage');
+    const editThumb = $('#editThumb');
+    const editTracking = $('#editTracking');
+    let editId = null;
+
+    window.openEdit = async function(id){
+      const j = await post('getPackage', { id });
+      if(!j.ok){ alert(j.error || 'Failed to load'); return; }
+      const d = j.data;
+      editId = d.id;
+      editTracking.textContent = d.tracking_number;
+      editTitle.value = d.title || '';
+      editArriving.value = d.arriving || '';
+      editDestination.value = d.destination || '';
+      editDelivery.value = d.delivery_option || '';
+      editStatus.value = d.status || '';
+      editDescription.value = d.description || '';
+      if(d.image_path){ editThumb.src = '../' + d.image_path; editThumb.style.display = 'block'; } else { editThumb.style.display = 'none'; }
+      editPanel.style.display = 'block';
+      drawRouteFor(d);
+    }
+
+    function closeEdit(){ editPanel.style.display = 'none'; clearRoute(); editId=null; editImage.value=''; }
+    editClose.addEventListener('click', closeEdit);
+
+    $('#editSave').addEventListener('click', async ()=>{
+      if(!editId) return;
+      const fd = new FormData();
+      fd.append('action','updatePackage');
+      fd.append('id', editId);
+      fd.append('title', editTitle.value.trim());
+      fd.append('arriving', editArriving.value.trim());
+      fd.append('destination', editDestination.value.trim());
+      fd.append('delivery_option', editDelivery.value.trim());
+      fd.append('status', editStatus.value.trim());
+      fd.append('description', editDescription.value.trim());
+      if(editImage.files[0]) fd.append('newImage', editImage.files[0]);
+      const r = await fetch('', { method:'POST', body: fd });
+      const j = await r.json();
+      if(!j.ok){ alert(j.error || 'Save failed'); return; }
+      await loadList();
+      closeEdit();
+    });
 
     // Search / refresh
     $('#search').addEventListener('input', ()=>{
