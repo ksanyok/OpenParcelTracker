@@ -141,6 +141,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             if (move_uploaded_file($_FILES['newImage']['tmp_name'], $targetPath)) {
                 $imagePath = 'photos/' . $newFilename;
+            } else {
+                echo json_encode(['ok'=>false,'error'=>'Failed to upload image']);
+                exit;
             }
         }
 
@@ -248,6 +251,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stm = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
         $stm->execute([$newHash, $_SESSION['uid']]);
         echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    if ($action === 'deletePackage') {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
+
+        $pdo->beginTransaction();
+        try {
+            // Delete locations first due to foreign key
+            $stm = $pdo->prepare("DELETE FROM locations WHERE package_id = ?");
+            $stm->execute([$id]);
+
+            // Delete package
+            $stm = $pdo->prepare("DELETE FROM packages WHERE id = ?");
+            $stm->execute([$id]);
+
+            $pdo->commit();
+            echo json_encode(['ok'=>true]);
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            echo json_encode(['ok'=>false,'error'=>'Delete failed']);
+        }
         exit;
     }
 
@@ -379,7 +405,7 @@ $version_info = $logged ? checkVersion() : null;
               <th>Title</th>
               <th>Coords</th>
               <th>Updated</th>
-              <th></th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -396,14 +422,14 @@ $version_info = $logged ? checkVersion() : null;
         </div>
         <div class="row">
           <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-map-pin-line"></i><input type="text" id="newAddress" placeholder="Initial address (optional – will be geocoded)" class="plain" style="width:100%;"></div>
-          <div class="input-wrap"><i class="ri-send-plane-line"></i><input type="text" id="newArriving" placeholder="Arriving location *" class="plain" required></div>
+          <div class="input-wrap"><i class="ri-send-plane-line"></i><input type="text" id="newArriving" placeholder="Arriving location" class="plain"></div>
         </div>
         <div class="row">
-          <div class="input-wrap"><i class="ri-flag-line"></i><input type="text" id="newDestination" placeholder="Destination *" class="plain" required></div>
-          <div class="input-wrap"><i class="ri-truck-line"></i><input type="text" id="newDeliveryOption" placeholder="Delivery option *" class="plain" required></div>
+          <div class="input-wrap"><i class="ri-flag-line"></i><input type="text" id="newDestination" placeholder="Destination" class="plain"></div>
+          <div class="input-wrap"><i class="ri-truck-line"></i><input type="text" id="newDeliveryOption" placeholder="Delivery option" class="plain"></div>
         </div>
         <div class="row" style="align-items:flex-start;">
-          <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="newDescription" placeholder="Images and Description *" required></textarea></div>
+          <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="newDescription" placeholder="Images and Description"></textarea></div>
           <div style="display:flex; align-items:center; gap:10px;">
             <input type="file" id="newImage" accept="image/*">
             <button id="addBtn"><i class="ri-add-circle-line"></i> Create</button>
@@ -575,7 +601,7 @@ $version_info = $logged ? checkVersion() : null;
           <td>${r.title ? r.title : ''}</td>
           <td>${coords}</td>
           <td>${r.updated_at}</td>
-          <td><span class="link" onclick="focusPkg(${r.id})">Focus</span></td>
+          <td><span class="link" onclick="focusPkg(${r.id})">Focus</span> | <span class="link" onclick="deletePkg(${r.id})">Delete</span></td>
         `;
         tbody.appendChild(tr);
       }
@@ -667,6 +693,14 @@ $version_info = $logged ? checkVersion() : null;
       showHistory(id, r.tracking_number);
     }
 
+    // Delete package
+    window.deletePkg = async function(id){
+      if (!confirm('Delete this package?')) return;
+      const j = await post('deletePackage', {id});
+      if (!j.ok) alert(j.error);
+      else loadList();
+    }
+
     // History
     window.showHistory = async function(id, title){
       const formData = new FormData();
@@ -711,10 +745,6 @@ $version_info = $logged ? checkVersion() : null;
       let lat = null, lng = null, address = '';
 
       if (!tracking) { alert('Tracking number is required'); return; }
-      if (!arriving || !destination || !deliveryOption || !description) {
-        alert('Please fill in all required fields.');
-        return;
-      }
 
       if (addr) {
         try {
