@@ -3,7 +3,7 @@ ini_set('display_errors', 1);
 error_reporting(E_ALL);
 /**
  * OpenParcelTracker Auto-Installer
- * This script clones the latest stable version from the repository and sets up the database.
+ * This script sets up the database.
  */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -50,37 +50,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     putenv("DB_PASS=$dbPass");
     putenv("DB_CHARSET=utf8mb4");
 
-    // Clone the repository
-    $repoUrl = 'https://github.com/ksanyok/OpenParcelTracker.git';
-    $installDir = __DIR__ . '/OpenParcelTracker';
+    // Download and extract the repository
+    $repoUrl = 'https://github.com/ksanyok/OpenParcelTracker/archive/refs/heads/main.zip';
+    $zipFile = __DIR__ . '/temp.zip';
+    $extractDir = __DIR__ . '/temp';
 
-    if (is_dir($installDir)) {
-        // If directory exists, pull latest
-        chdir($installDir);
-        exec('git pull origin main', $output, $returnVar);
-        if ($returnVar !== 0) {
-            die('Failed to update repository: ' . implode("\n", $output));
-        }
+    // Download the zip
+    $zipContent = file_get_contents($repoUrl);
+    if ($zipContent === false) {
+        die('Failed to download repository zip.');
+    }
+    file_put_contents($zipFile, $zipContent);
+
+    // Extract the zip
+    $zip = new ZipArchive();
+    if ($zip->open($zipFile) === TRUE) {
+        $zip->extractTo($extractDir);
+        $zip->close();
     } else {
-        // Clone
-        exec("git clone $repoUrl $installDir", $output, $returnVar);
-        if ($returnVar !== 0) {
-            die('Failed to clone repository: ' . implode("\n", $output));
+        unlink($zipFile);
+        die('Failed to extract repository zip.');
+    }
+    unlink($zipFile);
+
+    // Find the extracted folder (should be temp/OpenParcelTracker-main)
+    $extractedFolders = scandir($extractDir);
+    $repoFolder = null;
+    foreach ($extractedFolders as $folder) {
+        if ($folder !== '.' && $folder !== '..' && is_dir($extractDir . '/' . $folder)) {
+            $repoFolder = $extractDir . '/' . $folder;
+            break;
+        }
+    }
+    if (!$repoFolder) {
+        die('Failed to find extracted repository folder.');
+    }
+
+    // Function to move files recursively
+    function move_recursive($src, $dst) {
+        if (is_dir($src)) {
+            if (!is_dir($dst)) mkdir($dst, 0755, true);
+            $files = scandir($src);
+            foreach ($files as $file) {
+                if ($file !== '.' && $file !== '..') {
+                    move_recursive($src . '/' . $file, $dst . '/' . $file);
+                }
+            }
+            rmdir($src);
+        } else {
+            rename($src, $dst);
         }
     }
 
-    // Move files to current directory if needed
-    // For simplicity, assume installer is in root, and clone into subdir, then move
-    if ($installDir !== __DIR__) {
-        // Move contents
-        $files = scandir($installDir);
-        foreach ($files as $file) {
-            if ($file !== '.' && $file !== '..') {
-                rename("$installDir/$file", __DIR__ . "/$file");
-            }
+    // Move files to current directory
+    $files = scandir($repoFolder);
+    foreach ($files as $file) {
+        if ($file !== '.' && $file !== '..') {
+            $src = $repoFolder . '/' . $file;
+            $dst = __DIR__ . '/' . $file;
+            move_recursive($src, $dst);
         }
-        rmdir($installDir);
     }
+
+    // Clean up temp dir
+    rmdir($repoFolder);
+    rmdir($extractDir);
 
     // Include db.php to set up database
     require_once __DIR__ . '/db.php';
