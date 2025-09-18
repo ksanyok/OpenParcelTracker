@@ -27,42 +27,5 @@ $year = date('Y');
     <?php endif; ?>
 </footer>
 <?php
-// Inject Crisp widget on public pages if enabled
-$inAdmin = (strpos($_SERVER['SCRIPT_NAME'] ?? '', '/admin/') === 0);
-$enabled = setting_get('crisp_enabled', '0') === '1';
-$websiteId = trim((string)setting_get('crisp_website_id', ''));
-if (!$inAdmin && $enabled && $websiteId !== '') {
-    // Read schedule config but apply it in the browser using local time
-    $schedEnabled = setting_get('crisp_schedule_enabled', '0') === '1';
-    $daysStr = (string)setting_get('crisp_days', '1,2,3,4,5'); // 0=Sun .. 6=Sat (as saved by admin UI)
-    $startStr = (string)setting_get('crisp_hours_start', '09:00');
-    $endStr   = (string)setting_get('crisp_hours_end', '18:00');
-
-    $widEsc = htmlspecialchars($websiteId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $schedFlag = $schedEnabled ? 'true' : 'false';
-    $daysJs = htmlspecialchars($daysStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $startJs = htmlspecialchars($startStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $endJs   = htmlspecialchars($endStr,   ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
-    // Always emit a tiny bootstrapper; it will decide (by client local time) whether to load Crisp.
-    echo "\n<script>(function(){\n".
-         "var WID='".$widEsc."';\n".
-         "var SCHED=".$schedFlag.";\n".
-         "var DAYS='".$daysJs."';\n".
-         "var START='".$startJs."';\n".
-         "var END='".$endJs."';\n".
-         "function loadCrisp(){\n".
-         "  window.$crisp=[]; window.CRISP_WEBSITE_ID=WID;\n".
-         "  var d=document,s=d.createElement('script'); s.src='https://client.crisp.chat/l.js'; s.async=1; d.getElementsByTagName('head')[0].appendChild(s);\n".
-         "}\n".
-         "if(!SCHED){ loadCrisp(); return; }\n".
-         "function parseHM(t){ var p=(t||'').split(':'); var h=parseInt(p[0]||'0',10)||0, m=parseInt(p[1]||'0',10)||0; if(h<0)h=0; if(h>23)h=23; if(m<0)m=0; if(m>59)m=59; return h*60+m; }\n".
-         "var allowed=new Set((DAYS||'').split(',').map(function(x){return parseInt(x,10);}).filter(function(n){return !isNaN(n);}));\n".
-         "var now=new Date(); var dow=now.getDay(); // 0..6, 0=Sun\n".
-         "if(!allowed.has(dow)) return;\n".
-         "var mins=now.getHours()*60+now.getMinutes(); var sM=parseHM(START), eM=parseHM(END);\n".
-         "var within = (eM>=sM) ? (mins>=sM && mins<=eM) : (mins>=sM || mins<=eM);\n".
-         "if(within){ loadCrisp(); }\n".
-         "})();</script>\n";
-}
+// Crisp widget injection moved to index.php (client page) to ensure it loads on the client side and by local time.
 ?>
