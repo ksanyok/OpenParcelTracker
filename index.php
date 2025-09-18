@@ -280,10 +280,9 @@ if ($cr_enabled && $cr_websiteId !== '') {
 }
 
 if ($cr_should_emit) {
-    $widEsc = htmlspecialchars($cr_websiteId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     echo "\n<!-- Crisp chat -->\n";
-    echo "<script>window.\\$crisp=[];window.CRISP_WEBSITE_ID='".$widEsc."';</script>\n";
-    echo "<script src=\"https://client.crisp.chat/l.js\" async></script>\n";
+    echo '<script>window.$crisp=[];window.CRISP_WEBSITE_ID=' . json_encode($cr_websiteId) . ';</script>' . "\n";
+    echo '<script data-cfasync="false" src="https://client.crisp.chat/l.js" async></script>' . "\n";
 } else {
     $reason = !$cr_enabled ? 'disabled' : (($cr_websiteId==='') ? 'no-id' : ($cr_sched_on ? 'schedule-mismatch' : 'unknown'));
     echo "\n<!-- Crisp not emitted: " . htmlspecialchars($reason, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . " -->\n";
@@ -496,14 +495,28 @@ if ($cr_should_emit) {
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin="">
   </script>
+  <script type="application/json" id="data-pkg"><?=
+    json_encode(
+      $pkg,
+      JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT
+    )
+  ?></script>
+  <script type="application/json" id="data-history"><?=
+    json_encode(
+      $history,
+      JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT
+    )
+  ?></script>
   <script>
     (function(){
-      const pkg = <?=json_encode($pkg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)?>;
-      const historyArr = <?=json_encode($history, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)?>;
-      const hasPoint = pkg.last_lat !== null && pkg.last_lng !== null;
+      var pkgEl = document.getElementById('data-pkg');
+      var pkg = pkgEl ? JSON.parse(pkgEl.textContent || 'null') : null;
+      var historyEl = document.getElementById('data-history');
+      var historyArr = historyEl ? JSON.parse(historyEl.textContent || '[]') : [];
+      var hasPoint = pkg && pkg.last_lat !== null && pkg.last_lng !== null;
 
-      const map = L.map('map');
-      const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      var map = L.map('map');
+      var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
@@ -511,174 +524,184 @@ if ($cr_should_emit) {
       function toRad(x){ return x * Math.PI / 180; }
       function haversine(a,b){
         if(!a || !b) return 0;
-        const R=6371; // km
-        const dLat=toRad(b[0]-a[0]);
-        const dLng=toRad(b[1]-a[1]);
-        const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.sin(dLng/2)**2;
+        var R=6371; // km
+        var dLat=toRad(b[0]-a[0]);
+        var dLng=toRad(b[1]-a[1]);
+        var s = Math.pow(Math.sin(dLat/2),2) + Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.pow(Math.sin(dLng/2),2);
         return 2*R*Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
       }
-      async function geocode(q){
-        if(!q) return null;
-        try{
-          const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q), { headers:{ 'Accept':'application/json' }});
-          const arr = await r.json();
-          if(!arr.length) return null;
-          return [parseFloat(arr[0].lat), parseFloat(arr[0].lon)];
-        }catch{ return null; }
+      function geocode(q){
+        if(!q) return Promise.resolve(null);
+        return fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q), { headers:{ 'Accept':'application/json' }})
+          .then(function(r){ return r.json(); })
+          .then(function(arr){ if(!arr.length) return null; return [parseFloat(arr[0].lat), parseFloat(arr[0].lon)]; })
+          .catch(function(){ return null; });
       }
 
-      const boundsPts = [];
+      var boundsPts = [];
 
-      (async ()=>{
-        const startQ = (pkg.arriving||'').trim();
-        const destQ  = (pkg.destination||'').trim();
-        const startLL = startQ ? await geocode(startQ) : null;
-        const destLL  = destQ  ? await geocode(destQ)  : null;
+      function init(){
+        var startQ = (pkg && pkg.arriving ? pkg.arriving : '').trim();
+        var destQ  = (pkg && pkg.destination ? pkg.destination : '').trim();
+        var p1 = startQ ? geocode(startQ) : Promise.resolve(null);
+        var p2 = destQ  ? geocode(destQ)  : Promise.resolve(null);
+        Promise.all([p1,p2]).then(function(res){
+          var startLL = res[0];
+          var destLL  = res[1];
 
-        // Build chronological stops from history
-        const stops = Array.isArray(historyArr) ? historyArr.slice().reverse().map(r=>[parseFloat(r.lat), parseFloat(r.lng)]) : [];
-        const curLL = (pkg.last_lat!==null && pkg.last_lng!==null) ? [pkg.last_lat, pkg.last_lng] : null;
-        // If no history but we have current point, treat it as the first stop
-        const hasHist = stops.length>0;
-        const currentIsLastStop = hasHist ? (Math.abs(stops[stops.length-1][0]-(curLL?curLL[0]:NaN))<1e-6 && Math.abs(stops[stops.length-1][1]-(curLL?curLL[1]:NaN))<1e-6) : false;
-        if (!hasHist && curLL) stops.push(curLL);
+          // Build chronological stops from history
+          var stops = Array.isArray(historyArr) ? historyArr.slice().reverse().map(function(r){ return [parseFloat(r.lat), parseFloat(r.lng)]; }) : [];
+          var curLL = (pkg && pkg.last_lat!==null && pkg.last_lng!==null) ? [pkg.last_lat, pkg.last_lng] : null;
+          // If no history but we have current point, treat it as the first stop
+          var hasHist = stops.length>0;
+          var currentIsLastStop = hasHist ? (Math.abs(stops[stops.length-1][0]-(curLL?curLL[0]:NaN))<1e-6 && Math.abs(stops[stops.length-1][1]-(curLL?curLL[1]:NaN))<1e-6) : false;
+          if (!hasHist && curLL) stops.push(curLL);
 
-        // Full planned route: start -> stops -> destination
-        const routeFull = [];
-        if (startLL) routeFull.push(startLL);
-        for (const s of stops) routeFull.push(s);
-        if (destLL) routeFull.push(destLL);
+          // Full planned route: start -> stops -> destination
+          var routeFull = [];
+          if (startLL) routeFull.push(startLL);
+          for (var i=0;i<stops.length;i++){ routeFull.push(stops[i]); }
+          if (destLL) routeFull.push(destLL);
 
-        // Compute piecewise distances
-        function sumLegs(points){
-          let sum=0; for(let i=1;i<points.length;i++){ sum += haversine(points[i-1], points[i]); } return sum;
-        }
-        const totalKm = (routeFull.length>=2) ? sumLegs(routeFull) : (startLL&&destLL ? haversine(startLL,destLL) : 0);
-
-        // Distance done: start -> last stop (or 0 if none)
-        const traveledPts = [];
-        if (startLL) traveledPts.push(startLL);
-        for (const s of stops) traveledPts.push(s);
-        const doneKm = (traveledPts.length>=2) ? sumLegs(traveledPts) : 0;
-        const progress = (totalKm>0) ? Math.max(0, Math.min(100, (doneKm/totalKm)*100)) : 0;
-
-        // Map: draw start/dest markers
-        const startIcon = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#16a34a;border:2px solid #0f7a37;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
-        const destIcon  = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;border:2px solid #b91c1c;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
-        if (startLL) L.marker(startLL, {icon:startIcon}).addTo(map).bindTooltip('Start');
-        if (destLL)  L.marker(destLL,  {icon:destIcon}).addTo(map).bindTooltip('Destination');
-
-        // Full route dashed
-        if (routeFull.length>=2) {
-          L.polyline(routeFull, { color:'#111', weight:3, opacity:0.5, dashArray:'6 6' }).addTo(map);
-        }
-        // Traveled path solid red
-        if (traveledPts.length>=2) {
-          L.polyline(traveledPts, { color:'#D40511', weight:4, opacity:0.85 }).addTo(map);
-        }
-        // Mark each historical stop as small circle
-        for (let i=0;i<stops.length;i++){
-          L.circleMarker(stops[i], { radius:4, color:'#D40511', weight:1, fillColor:'#FFCC00', fillOpacity:0.9 }).addTo(map);
-        }
-
-        // Include current and route points in bounds
-        for (const p of routeFull) boundsPts.push(p);
-        if (boundsPts.length) map.fitBounds(boundsPts, { padding:[30,30] }); else {
-          if (curLL) map.setView(curLL, 13); else map.setView([31.0461, 34.8516], 7);
-        }
-
-        // Progress UI
-        const pc = document.getElementById('progressCard');
-        const pf = document.getElementById('progressFill');
-        const tkm = document.getElementById('totalKm');
-        const sl  = document.getElementById('startLabel');
-        const dl  = document.getElementById('destLabel');
-        const sb  = document.getElementById('statusBadge');
-        const ps  = document.getElementById('progressStops');
-        const pcursor = document.getElementById('progressCursor');
-        if (pc && pf && tkm){
-          pc.style.display = (startLL && destLL) ? 'block' : 'none';
-          if (pc.style.display === 'block'){
-            pf.style.width = progress.toFixed(0) + '%';
-            pf.title = progress.toFixed(0) + '%';
-            tkm.textContent = Math.round(totalKm);
-            sl.textContent = startQ; dl.textContent = destQ;
-
-            // Render stop ticks with labels and tooltips
-            ps.innerHTML = '';
-            if (totalKm > 0 && routeFull.length>=2){
-              // cumulative distances for each route point
-              let cum = 0;
-              const cumList = [0];
-              for (let i=1;i<routeFull.length;i++){
-                cum += haversine(routeFull[i-1], routeFull[i]);
-                cumList.push(cum);
-              }
-              // Build metadata for stops from history (chronological order)
-              const histChrono = Array.isArray(historyArr) ? historyArr.slice().reverse() : [];
-              // For each intermediate point (exclude start=0 and dest=last)
-              for (let idx=1; idx<routeFull.length-1; idx++){
-                const pct = (cumList[idx] / totalKm) * 100;
-                const dot = document.createElement('span');
-                dot.className = 'progress-stop future';
-                dot.style.left = pct + '%';
-                // Tooltip content
-                const hmeta = histChrono[idx-1] || {};
-                const tipParts = [];
-                tipParts.push('≈ ' + pct.toFixed(0) + '%');
-                if (hmeta.created_at) tipParts.push(hmeta.created_at);
-                if (hmeta.address) tipParts.push(hmeta.address);
-                if (hmeta.note) tipParts.push('Note: ' + hmeta.note);
-                dot.title = tipParts.join(' • ');
-                // Label above
-                const lbl = document.createElement('span');
-                lbl.className = 'lbl';
-                lbl.textContent = pct.toFixed(0) + '%';
-                dot.appendChild(lbl);
-                // decide past/current/future
-                if (pct < progress - 0.5) dot.className = 'progress-stop past';
-                else if (Math.abs(pct - progress) <= 0.5) dot.className = 'progress-stop current';
-                ps.appendChild(dot);
-              }
-              // Current position cursor (even if not exactly at stop)
-              if (pcursor){
-                pcursor.style.left = Math.max(0, Math.min(100, progress)) + '%';
-                pcursor.title = 'Now ≈ ' + progress.toFixed(0) + '%';
-                // label element
-                let lbl = pcursor.querySelector('.progress-cursor-label');
-                if (!lbl){
-                  lbl = document.createElement('span');
-                  lbl.className = 'progress-cursor-label';
-                  pcursor.appendChild(lbl);
-                }
-                lbl.textContent = 'Now ' + progress.toFixed(0) + '%';
-              }
-            }
-
-            const st = (pkg.status||'').toLowerCase();
-            const autoSt = (progress>=100?'delivered': (progress>0?'in_transit':'created'));
-            sb.textContent = st || autoSt;
-            sb.className = 'status-badge ' + (st?('status-'+st) : (progress>=100?'status-delivered': (progress>0?'status-in_transit':'status-created')));
+          // Compute piecewise distances
+          function sumLegs(points){
+            var sum=0; for(var i=1;i<points.length;i++){ sum += haversine(points[i-1], points[i]); } return sum;
           }
-        }
-      })();
+          var totalKm = (routeFull.length>=2) ? sumLegs(routeFull) : (startLL&&destLL ? haversine(startLL,destLL) : 0);
 
-      document.getElementById('printBtn')?.addEventListener('click', function(){ window.print(); });
+          // Distance done: start -> last stop (or 0 if none)
+          var traveledPts = [];
+          if (startLL) traveledPts.push(startLL);
+          for (var j=0;j<stops.length;j++){ traveledPts.push(stops[j]); }
+          var doneKm = (traveledPts.length>=2) ? sumLegs(traveledPts) : 0;
+          var progress = (totalKm>0) ? Math.max(0, Math.min(100, (doneKm/totalKm)*100)) : 0;
+
+          // Map: draw start/dest markers
+          var startIcon = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#16a34a;border:2px solid #0f7a37;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
+          var destIcon  = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;border:2px solid #b91c1c;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
+          if (startLL) L.marker(startLL, {icon:startIcon}).addTo(map).bindTooltip('Start');
+          if (destLL)  L.marker(destLL,  {icon:destIcon}).addTo(map).bindTooltip('Destination');
+
+          // Full route dashed
+          if (routeFull.length>=2) {
+            L.polyline(routeFull, { color:'#111', weight:3, opacity:0.5, dashArray:'6 6' }).addTo(map);
+          }
+          // Traveled path solid red
+          if (traveledPts.length>=2) {
+            L.polyline(traveledPts, { color:'#D40511', weight:4, opacity:0.85 }).addTo(map);
+          }
+          // Mark each historical stop as small circle
+          for (var k=0;k<stops.length;k++){
+            L.circleMarker(stops[k], { radius:4, color:'#D40511', weight:1, fillColor:'#FFCC00', fillOpacity:0.9 }).addTo(map);
+          }
+
+          // Include current and route points in bounds
+          for (var p=0;p<routeFull.length;p++) boundsPts.push(routeFull[p]);
+          if (boundsPts.length) map.fitBounds(boundsPts, { padding:[30,30] }); else {
+            if (curLL) map.setView(curLL, 13); else map.setView([31.0461, 34.8516], 7);
+          }
+
+          // Progress UI
+          var pc = document.getElementById('progressCard');
+          var pf = document.getElementById('progressFill');
+          var tkm = document.getElementById('totalKm');
+          var sl  = document.getElementById('startLabel');
+          var dl  = document.getElementById('destLabel');
+          var sb  = document.getElementById('statusBadge');
+          var ps  = document.getElementById('progressStops');
+          var pcursor = document.getElementById('progressCursor');
+          if (pc && pf && tkm){
+            pc.style.display = (startLL && destLL) ? 'block' : 'none';
+            if (pc.style.display === 'block'){
+              pf.style.width = progress.toFixed(0) + '%';
+              pf.title = progress.toFixed(0) + '%';
+              tkm.textContent = Math.round(totalKm);
+              sl.textContent = startQ; dl.textContent = destQ;
+
+              // Render stop ticks with labels and tooltips
+              ps.innerHTML = '';
+              if (totalKm > 0 && routeFull.length>=2){
+                // cumulative distances for each route point
+                var cum = 0;
+                var cumList = [0];
+                for (var idx=1; idx<routeFull.length; idx++){
+                  cum += haversine(routeFull[idx-1], routeFull[idx]);
+                  cumList.push(cum);
+                }
+                // Build metadata for stops from history (chronological order)
+                var histChrono = Array.isArray(historyArr) ? historyArr.slice().reverse() : [];
+                // For each intermediate point (exclude start=0 and dest=last)
+                for (var ii=1; ii<routeFull.length-1; ii++){
+                  var pct = (cumList[ii] / totalKm) * 100;
+                  var dot = document.createElement('span');
+                  dot.className = 'progress-stop future';
+                  dot.style.left = pct + '%';
+                  // Tooltip content
+                  var hmeta = histChrono[ii-1] || {};
+                  var tipParts = [];
+                  tipParts.push('≈ ' + pct.toFixed(0) + '%');
+                  if (hmeta.created_at) tipParts.push(hmeta.created_at);
+                  if (hmeta.address) tipParts.push(hmeta.address);
+                  if (hmeta.note) tipParts.push('Note: ' + hmeta.note);
+                  dot.title = tipParts.join(' • ');
+                  // Label above
+                  var lbl = document.createElement('span');
+                  lbl.className = 'lbl';
+                  lbl.textContent = pct.toFixed(0) + '%';
+                  dot.appendChild(lbl);
+                  // decide past/current/future
+                  if (pct < progress - 0.5) dot.className = 'progress-stop past';
+                  else if (Math.abs(pct - progress) <= 0.5) dot.className = 'progress-stop current';
+                  ps.appendChild(dot);
+                }
+                // Current position cursor (even if not exactly at stop)
+                if (pcursor){
+                  pcursor.style.left = Math.max(0, Math.min(100, progress)) + '%';
+                  pcursor.title = 'Now ≈ ' + progress.toFixed(0) + '%';
+                  // label element
+                  var lbl2 = pcursor.querySelector('.progress-cursor-label');
+                  if (!lbl2){
+                    lbl2 = document.createElement('span');
+                    lbl2.className = 'progress-cursor-label';
+                    pcursor.appendChild(lbl2);
+                  }
+                  lbl2.textContent = 'Now ' + progress.toFixed(0) + '%';
+                }
+              }
+
+              var st = (pkg && pkg.status ? String(pkg.status) : '').toLowerCase();
+              var autoSt = (progress>=100?'delivered': (progress>0?'in_transit':'created'));
+              sb.textContent = st || autoSt;
+              sb.className = 'status-badge ' + (st?('status-'+st) : (progress>=100?'status-delivered': (progress>0?'status-in_transit':'status-created')));
+            }
+          }
+        });
+      }
+
+      init();
+
+      var printBtn = document.getElementById('printBtn');
+      if (printBtn) {
+        printBtn.addEventListener('click', function(){ window.print(); });
+      }
 
       // Update UTC offset with client's timezone
+      function pad2(s){ s=String(s); return s.length<2?('0'+s):s; }
       try {
-        const mins = -new Date().getTimezoneOffset();
-        const sign = mins >= 0 ? '+' : '-';
-        const abs = Math.abs(mins);
-        const h = String(Math.floor(abs / 60)).padStart(2,'0');
-        const m = String(abs % 60).padStart(2,'0');
-        const txt = `UTC${sign}${h}:${m}`;
-        document.querySelectorAll('.utc-offset').forEach(el=>{ el.textContent = `(${txt})`; });
-      } catch {}
+        var mins = -new Date().getTimezoneOffset();
+        var sign = mins >= 0 ? '+' : '-';
+        var abs = Math.abs(mins);
+        var h = pad2(Math.floor(abs / 60));
+        var m = pad2(abs % 60);
+        var txt = 'UTC' + sign + h + ':' + m;
+        var utcOffsets = document.querySelectorAll('.utc-offset');
+        for (var iii = 0; iii < utcOffsets.length; iii++) {
+          utcOffsets[iii].textContent = '(' + txt + ')';
+        }
+      } catch (e) {}
     })();
   </script>
   <?php endif; ?>
-</main>
 <?php require_once __DIR__ . '/footer.php'; ?>
 </body>
 </html>
