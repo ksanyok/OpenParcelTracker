@@ -30,7 +30,7 @@ if (file_exists(__DIR__ . '/.env')) {
 
 const DB_DIR  = __DIR__ . '/data';
 const DB_FILE = DB_DIR . '/tracker.sqlite';
-const VERSION = '1.9.8';
+const VERSION = '1.9.9';
 
 /**
  * Get the current version of the application.
@@ -141,6 +141,16 @@ function ensure_schema(PDO $pdo, string $driver='sqlite'): void {
                 CONSTRAINT fk_locations_packages FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+
+        // Settings key-value table
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS settings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                s_key VARCHAR(191) NOT NULL UNIQUE,
+                s_value TEXT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
     } else {
         // sqlite
         $pdo->exec("
@@ -184,6 +194,16 @@ function ensure_schema(PDO $pdo, string $driver='sqlite'): void {
                 FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
             )
         ");
+
+        // Settings key-value table
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                s_key TEXT UNIQUE NOT NULL,
+                s_value TEXT,
+                updated_at TEXT NOT NULL
+            )
+        ");
     }
 
     // bootstrap default admin if empty
@@ -193,5 +213,31 @@ function ensure_schema(PDO $pdo, string $driver='sqlite'): void {
         $now  = date('Y-m-d H:i:s');
         $stm  = $pdo->prepare("INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?,?,1,?)");
         $stm->execute(['admin', $hash, $now]);
+    }
+}
+
+/**
+ * Simple key/value settings helpers.
+ */
+function setting_get(string $key, ?string $default = null): ?string {
+    $pdo = pdo();
+    $stm = $pdo->prepare("SELECT s_value FROM settings WHERE s_key = ?");
+    $stm->execute([$key]);
+    $row = $stm->fetch();
+    if ($row && array_key_exists('s_value', $row)) return (string)$row['s_value'];
+    return $default;
+}
+
+function setting_set(string $key, ?string $value): void {
+    $pdo = pdo();
+    $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    $now = date('Y-m-d H:i:s');
+    if ($driver === 'mysql') {
+        $stm = $pdo->prepare("INSERT INTO settings (s_key, s_value, updated_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE s_value=VALUES(s_value), updated_at=VALUES(updated_at)");
+        $stm->execute([$key, $value, $now]);
+    } else {
+        // sqlite upsert
+        $stm = $pdo->prepare("INSERT INTO settings (s_key, s_value, updated_at) VALUES (?,?,?) ON CONFLICT(s_key) DO UPDATE SET s_value=excluded.s_value, updated_at=excluded.updated_at");
+        $stm->execute([$key, $value, $now]);
     }
 }

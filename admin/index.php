@@ -536,6 +536,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    // Crisp chat settings endpoints
+    if ($action === 'getCrispSettings') {
+        $data = [
+            'enabled' => setting_get('crisp_enabled', '0') ?? '0',
+            'website_id' => setting_get('crisp_website_id', '') ?? '',
+            'sched_enabled' => setting_get('crisp_schedule_enabled', '0') ?? '0',
+            'days' => setting_get('crisp_days', '1,2,3,4,5') ?? '1,2,3,4,5',
+            'start' => setting_get('crisp_hours_start', '09:00') ?? '09:00',
+            'end' => setting_get('crisp_hours_end', '18:00') ?? '18:00',
+        ];
+        echo json_encode(['ok'=>true,'data'=>$data], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($action === 'saveCrispSettings') {
+        $enabled = isset($_POST['enabled']) && $_POST['enabled'] === '1' ? '1' : '0';
+        $website_id = trim((string)($_POST['website_id'] ?? ''));
+        // Basic validation for UUID-like id
+        if ($website_id !== '' && !preg_match('~^[A-Za-z0-9-]{8,}$~', $website_id)) {
+            echo json_encode(['ok'=>false,'error'=>'Invalid Website ID']);
+            exit;
+        }
+        $sched_enabled = isset($_POST['sched_enabled']) && $_POST['sched_enabled'] === '1' ? '1' : '0';
+        $days = preg_replace('~[^0-6,]+~', '', (string)($_POST['days'] ?? '1,2,3,4,5'));
+        // normalize days list (unique, sorted)
+        $arrDays = array_values(array_unique(array_filter(array_map('intval', explode(',', $days)), function($d){ return $d>=0 && $d<=6; })));
+        sort($arrDays);
+        $daysNorm = implode(',', $arrDays ?: [1,2,3,4,5]);
+        $start = (string)($_POST['start'] ?? '09:00');
+        $end = (string)($_POST['end'] ?? '18:00');
+        if (!preg_match('~^\d{2}:\d{2}$~', $start)) $start = '09:00';
+        if (!preg_match('~^\d{2}:\d{2}$~', $end)) $end = '18:00';
+
+        setting_set('crisp_enabled', $enabled);
+        setting_set('crisp_website_id', $website_id);
+        setting_set('crisp_schedule_enabled', $sched_enabled);
+        setting_set('crisp_days', $daysNorm);
+        setting_set('crisp_hours_start', $start);
+        setting_set('crisp_hours_end', $end);
+
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
     echo json_encode(['ok'=>false,'error'=>'Unknown action']);
     exit;
 }
@@ -613,7 +657,12 @@ $version_info = $logged ? checkVersion() : null;
 <body>
 <div class="bg-animated" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
 <header>
-  <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-settings-3-line"></i> Admin • Package Tracker</strong>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <a href="../index.php" title="Open client" style="display:inline-flex; align-items:center; gap:8px; background:#fff; border-radius:12px; padding:6px 10px; box-shadow:0 6px 14px rgba(0,0,0,0.15);">
+      <img src="../dhl-logo.svg" alt="Logo" style="height:18px; width:auto; display:block; filter:saturate(110%);"/>
+    </a>
+    <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-settings-3-line"></i> Admin • Package Tracker</strong>
+  </div>
   <?php if ($logged): ?>
     <div>
       <?php if ($version_info && $version_info['update_available']): ?>
@@ -731,56 +780,45 @@ $version_info = $logged ? checkVersion() : null;
         <div class="input-wrap"><i class="ri-key-line"></i><input type="password" id="confirmPassword" placeholder="Confirm new password" class="plain" required></div>
         <button id="changePasswordBtn"><i class="ri-shield-check-line"></i> Change Password</button>
       </form>
-    </div>
-  </div>
 
-  <!-- Edit panel -->
-  <div id="editModal" class="modal">
-    <div class="modal-dialog card">
-      <div class="row" style="justify-content:space-between; align-items:center; position:sticky; top:0; background:inherit; padding-bottom:8px; z-index:1;">
-        <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-edit-2-line"></i> Edit package</strong>
-        <button id="editClose" style="background:#eee; color:#222; box-shadow:none;"><i class="ri-close-line"></i> Close</button>
-      </div>
-      <div id="editBody" class="grid" style="margin-top:10px;">
-        <div class="tag"><i class="ri-hashtag"></i><span id="editTracking"></span></div>
-        <label>Title
-          <div class="input-wrap"><i class="ri-edit-line"></i><input type="text" id="editTitle" class="plain"></div>
-        </label>
-        <label>Start (from)
-          <div class="input-wrap"><i class="ri-flag-2-line"></i><input type="text" id="editArriving" placeholder="City / address" class="plain"></div>
-          <button type="button" id="editArrPickBtn" class="btn-small btn-ghost" style="margin-top:6px; width:max-content;"><i class="ri-focus-2-line"></i> Pick start on map</button>
-        </label>
-        <label>Destination
-          <div class="input-wrap"><i class="ri-map-pin-2-line"></i><input type="text" id="editDestination" placeholder="City / address" class="plain"></div>
-          <button type="button" id="editDestPickBtn" class="btn-small btn-ghost" style="margin-top:6px; width:max-content;"><i class="ri-focus-2-line"></i> Pick destination on map</button>
-        </label>
-        <label>Delivery option
-          <div class="input-wrap"><i class="ri-truck-line"></i><input type="text" id="editDelivery" class="plain"></div>
-        </label>
-        <label>Status
-          <div class="input-wrap">
-            <i class="ri-alert-line"></i>
-            <select id="editStatus" class="plain" style="background:transparent; border:0; outline:none; min-width:160px; padding:0;">
-              <option value="">—</option>
-              <option value="created">Created</option>
-              <option value="in_transit">In transit</option>
-              <option value="delivered">Delivered</option>
-              <option value="active">Active (legacy)</option>
-            </select>
+      <hr style="margin:16px 0; border:0; border-top:1px solid var(--border);">
+
+      <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-chat-1-line"></i> Live chat (Crisp)</h3>
+      <form id="crispForm" class="grid" onsubmit="return false;">
+        <div class="row">
+          <label class="row" style="gap:8px; align-items:center;">
+            <input type="checkbox" id="crispEnabled"> Enable Crisp chat
+          </label>
+          <div class="input-wrap" style="flex:1 1 260px;"><i class="ri-key-2-line"></i><input type="text" id="crispWebsiteId" placeholder="Crisp Website ID (UUID)" class="plain" style="width:100%"></div>
+        </div>
+        <div class="row">
+          <label class="row" style="gap:8px; align-items:center;">
+            <input type="checkbox" id="crispSchedEnabled"> Enable schedule (show chat only in selected time)
+          </label>
+        </div>
+        <div class="row" style="flex-wrap:wrap; gap:10px 16px;">
+          <div class="row" style="gap:8px; align-items:center;">
+            <strong class="muted" style="min-width:80px;">Days:</strong>
+            <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" class="crispDay" value="1"> Mon</label>
+            <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" class="crispDay" value="2"> Tue</label>
+            <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" class="crispDay" value="3"> Wed</label>
+            <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" class="crispDay" value="4"> Thu</label>
+            <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" class="crispDay" value="5"> Fri</label>
+            <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" class="crispDay" value="6"> Sat</label>
+            <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" class="crispDay" value="0"> Sun</label>
           </div>
-        </label>
-        <label>Description
-          <div class="textarea-wrap"><textarea id="editDescription" placeholder="Details"></textarea></div>
-        </label>
-        <div>
-          <img id="editThumb" class="thumb" alt="Image" style="display:none; width:100%; max-height:220px; object-fit:cover; border-radius:10px; border:1px solid var(--border);">
-          <div class="row" style="margin-top:8px; align-items:center;">
-            <input type="file" id="editImage" accept="image/*">
-            <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
+          <div class="row" style="gap:8px; align-items:center;">
+            <strong class="muted">Hours:</strong>
+            <input type="time" id="crispStart" value="09:00" class="plain" style="padding:8px 10px; border-radius:10px; border:1px solid var(--border);">
+            <span class="muted">–</span>
+            <input type="time" id="crispEnd" value="18:00" class="plain" style="padding:8px 10px; border-radius:10px; border:1px solid var(--border);">
+            <span class="hint">Client browser local time. Overnight ranges supported.</span>
           </div>
         </div>
-        <p class="hint">On the map: start and destination are highlighted with a dashed route.</p>
-      </div>
+        <div class="row">
+          <button id="crispSaveBtn"><i class="ri-save-3-line"></i> Save chat settings</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -1373,31 +1411,44 @@ $version_info = $logged ? checkVersion() : null;
     });
 
     // Change password
-    $('#changePasswordBtn').addEventListener('click', async ()=>{
-      const currentPassword = $('#currentPassword').value.trim();
-      const newPassword = $('#newPassword').value.trim();
-      const confirmPassword = $('#confirmPassword').value.trim();
-
-      if (!currentPassword || !newPassword || !confirmPassword) {
-        alert('All fields are required.');
-        return;
-      }
-
-      if (newPassword !== confirmPassword) {
-        alert('New password and confirmation do not match.');
-        return;
-      }
-
-      const j = await post('changePassword', { currentPassword, newPassword, confirmPassword });
-      if (!j.ok) { alert(j.error || 'Change password failed'); return; }
-      alert('Password changed successfully.');
-      $('#currentPassword').value = '';
-      $('#newPassword').value = '';
-      $('#confirmPassword').value = '';
+    document.getElementById('changePasswordBtn')?.addEventListener('click', async ()=>{
+      const fd = new FormData();
+      fd.append('action','changePassword');
+      fd.append('currentPassword', document.getElementById('currentPassword').value);
+      fd.append('newPassword', document.getElementById('newPassword').value);
+      fd.append('confirmPassword', document.getElementById('confirmPassword').value);
+      const r = await fetch('', {method:'POST', body:fd});
+      const j = await r.json();
+      if (j.ok) alert('Password changed'); else alert(j.error||'Error');
     });
 
-    // Initial
-    loadList();
+    // Crisp settings
+    async function loadCrisp(){
+      const j = await post('getCrispSettings');
+      if (!j.ok) return;
+      document.getElementById('crispEnabled').checked = j.data.enabled === '1';
+      document.getElementById('crispWebsiteId').value = j.data.website_id || '';
+      document.getElementById('crispSchedEnabled').checked = j.data.sched_enabled === '1';
+      const days = (j.data.days||'1,2,3,4,5').split(',').map(x=>parseInt(x,10));
+      document.querySelectorAll('.crispDay').forEach(cb=>{ cb.checked = days.includes(parseInt(cb.value,10)); });
+      document.getElementById('crispStart').value = j.data.start || '09:00';
+      document.getElementById('crispEnd').value = j.data.end || '18:00';
+    }
+    loadCrisp();
+
+    document.getElementById('crispSaveBtn')?.addEventListener('click', async ()=>{
+      const days = Array.from(document.querySelectorAll('.crispDay:checked')).map(cb=>cb.value).join(',');
+      const payload = {
+        enabled: document.getElementById('crispEnabled').checked ? '1' : '0',
+        website_id: document.getElementById('crispWebsiteId').value.trim(),
+        sched_enabled: document.getElementById('crispSchedEnabled').checked ? '1' : '0',
+        days,
+        start: document.getElementById('crispStart').value || '09:00',
+        end: document.getElementById('crispEnd').value || '18:00',
+      };
+      const j = await post('saveCrispSettings', payload);
+      if (j.ok) alert('Saved'); else alert(j.error||'Save failed');
+    });
   </script>
 <?php endif; ?>
 </main>
