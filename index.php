@@ -13,6 +13,62 @@ require_once __DIR__ . '/db.php';
 
 function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
+// English-first localization with broader country coverage
+function normalize_en_locale(string $loc): string {
+    $loc = str_replace('-', '_', trim($loc));
+    if ($loc === '' || strtolower($loc) === 'en') return 'en_US';
+    if (preg_match('/^en_([a-z]{2}|[A-Z]{2})$/', $loc, $m)) return 'en_' . strtoupper($m[1]);
+    return 'en_US';
+}
+function detect_locale(): string {
+    $al = strtolower($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '');
+    if (preg_match('/en-([a-z]{2})/', $al, $m)) return normalize_en_locale('en_' . $m[1]);
+    if (str_contains($al, 'en')) return 'en_US';
+    // non-English -> pick en_GB for international style
+    return 'en_GB';
+}
+function get_locale(): string {
+    $lang = $_GET['lang'] ?? '';
+    $lang = is_string($lang) ? trim($lang) : '';
+    $allowed = ['en_US','en_GB','en_CA','en_AU','en_NZ','en_IE','en_IN','en_SG','en_ZA','en_PH','en_HK','en_MY','en_AE','en_EG'];
+    if ($lang !== ''){
+        $norm = normalize_en_locale($lang);
+        if (in_array($norm, $allowed, true)) return $norm;
+    }
+    return detect_locale();
+}
+function utc_offset_str(): string {
+    $dt = new DateTime('now'); $off = $dt->getOffset();
+    $sign = $off >= 0 ? '+' : '-';
+    $off = abs($off); $h = intdiv($off, 3600); $m = intdiv($off % 3600, 60);
+    return sprintf('UTC%s%02d:%02d', $sign, $h, $m);
+}
+function format_day_label(string $day, string $locale): string {
+    $ts = strtotime($day);
+    if (!$ts) return $day;
+    if (class_exists(IntlDateFormatter::class)){
+        $fmt = new IntlDateFormatter($locale, IntlDateFormatter::FULL, IntlDateFormatter::NONE);
+        $fmt->setPattern('EEEE, d MMMM y');
+        return $fmt->format($ts);
+    }
+    // Fallback
+    @setlocale(LC_TIME, $locale . '.utf8', $locale, 'en_US.utf8');
+    return strftime('%A, %d %B %Y', $ts);
+}
+function format_time_local(int $ts, string $locale): string {
+    $isUS = str_starts_with($locale, 'en_US');
+    return $isUS ? strtolower(date('g:i a', $ts)) : date('H:i', $ts);
+}
+function service_area_from_address(?string $addr): string {
+    $addr = trim((string)$addr);
+    if ($addr === '') return '';
+    $parts = array_values(array_filter(array_map('trim', explode(',', $addr)), fn($x)=>$x!==''));
+    $n = count($parts);
+    if ($n === 0) return '';
+    $take = array_slice($parts, max(0, $n-3));
+    return implode(' – ', $take);
+}
+
 function checkVersion(): ?array {
     $url = 'https://raw.githubusercontent.com/ksanyok/OpenParcelTracker/main/db.php';
     $context = stream_context_create([
@@ -159,10 +215,13 @@ $version_info = checkVersion();
 
   /* DHL-like timeline (wide on desktop) */
   .timeline{ position:relative; }
-  .tl-day{ position:relative; padding:12px 0 4px; border-top:1px solid #e6e9ee; }
+  .tl-day{ position:relative; padding:0; margin:0; border-top:1px solid #e6e9ee; }
   .tl-day:first-child{ border-top:0; }
-  .tl-day-header{ font-weight:700; color:#111; margin:0 0 6px; display:flex; align-items:center; gap:8px; }
-  .tl-rows{ }
+  .tl-day > summary.tl-day-header{ list-style:none; cursor:pointer; position: sticky; top: 0; z-index: 2; background: rgba(255,255,255,0.9); backdrop-filter: blur(6px); padding:10px 0; font-weight:700; color:#111; display:flex; align-items:center; gap:8px; }
+  .tl-day > summary.tl-day-header::-webkit-details-marker{ display:none; }
+  .tl-day > summary.tl-day-header::after{ content:'▸'; margin-left:8px; transition: transform .2s; }
+  .tl-day[open] > summary.tl-day-header::after{ transform: rotate(90deg); }
+  .tl-rows{ padding:4px 0 8px; }
   .tl-row{ display:grid; grid-template-columns: 160px 28px 1fr; gap:12px; align-items:start; padding:10px 0; }
   @media (max-width: 720px){ .tl-row{ grid-template-columns: 90px 24px 1fr; } }
   .tl-time{ color:#5b6470; font-size:13px; white-space:nowrap; }
@@ -175,15 +234,18 @@ $version_info = checkVersion();
   .tl-row.departed .tl-dot{ background:#D40511; border-color:#b1040e; color:#fff; }
   .tl-row.arrived .tl-dot{ background:#fff; border-color:#D40511; color:#D40511; }
   .tl-row.customs .tl-dot{ background:#fff; border-color:#ff7a00; color:#ff7a00; }
+  .tl-row.intransit .tl-dot{ background:#fff; border-color:#ff7a00; color:#ff7a00; }
   .tl-title{ font-weight:700; }
   .tl-title.delivered{ color:#0f7a37; }
   .tl-title.intransit{ color:#b1040e; }
-  .tl-sub{ font-size:13px; color:#333; margin-top:2px; }
+  .tl-sub{ font-size:13px; color:#333; margin-top:2px; text-transform: uppercase; letter-spacing:.2px; }
   .tl-meta{ font-size:12px; color:#5b6470; margin-top:3px; }
   .tl-meta a{ color:#b1040e; text-decoration:underline; }
+  .tl-count{ display:inline-block; margin-left:8px; font-size:12px; color:#5b6470; background:#f1f3f7; border:1px solid #e3e6ea; border-radius:999px; padding:2px 8px; }
 
   /* Print styles tweak for timeline */
   @media print {
+    .tl-day > summary.tl-day-header{ position: static; background:#fff !important; }
     .tl-line::before{ background:#bbb !important; }
     .tl-dot{ box-shadow:none !important; }
   }
@@ -298,19 +360,21 @@ $version_info = checkVersion();
     <?php else: ?>
       <div class="timeline">
         <?php
-          // Group by day (already DESC order)
+          // Group by day (DESC order already)
           $groups = [];
           foreach ($history as $row) {
             $ts = strtotime((string)$row['created_at']);
             $dayKey = $ts ? date('Y-m-d', $ts) : 'unknown';
             $groups[$dayKey][] = $row;
           }
-          krsort($groups); // ensure newest day first
+          krsort($groups);
 
-          // helper: classify by note keywords
+          $locale = get_locale();
+          $utcStr = utc_offset_str();
+
           $classify = function(string $note): array {
             $n = mb_strtolower($note);
-            $cls = 'intransit'; $icon = 'ri-alert-line';
+            $cls = 'intransit'; $icon = 'ri-alert-line'; // triangle-ish for in-transit
             if ($n === '') { return [$cls, $icon]; }
             if (str_contains($n, 'достав') || str_contains($n, 'deliver')) { return ['delivered', 'ri-check-line']; }
             if (str_contains($n, 'кур') || str_contains($n, 'courier')) { return ['courier', 'ri-truck-line']; }
@@ -322,34 +386,67 @@ $version_info = checkVersion();
           $upper = function(string $s): string { return function_exists('mb_strtoupper') ? mb_strtoupper($s) : strtoupper($s); };
         ?>
         <?php foreach ($groups as $day => $rows): ?>
-          <?php $label = $day !== 'unknown' ? strftime('%A, %d %B %Y', strtotime($day)) : '—'; ?>
-          <div class="tl-day">
-            <div class="tl-day-header"><?=$label?></div>
+          <?php $label = $day !== 'unknown' ? format_day_label($day, $locale) : '—'; ?>
+          <details class="tl-day" open>
+            <summary class="tl-day-header"><?=$label?> <span class="muted utc-offset" style="font-weight:500;">(<?=$utcStr?>)</span></summary>
             <div class="tl-rows">
-              <?php foreach ($rows as $r):
-                $ts  = strtotime((string)$r['created_at']);
-                $time = $ts ? date('H:i', $ts) : '';
-                $note = (string)($r['note'] ?? '');
-                $addr = (string)($r['address'] ?? '');
-                $lat = (float)$r['lat']; $lng = (float)$r['lng'];
-                [$cls, $icon] = $classify($note);
-                $mapsUrl = 'https://www.google.com/maps?q=' . rawurlencode($lat . ',' . $lng);
+              <?php
+                // Merge sequential duplicates (same note+address)
+                $merged = [];
+                foreach ($rows as $r) {
+                    $key = trim((string)($r['note'] ?? '')) . '|' . trim((string)($r['address'] ?? ''));
+                    $tsR = strtotime((string)$r['created_at']);
+                    $timeStr = $tsR ? format_time_local($tsR, $locale) : '';
+                    if ($merged && $merged[count($merged)-1]['key'] === $key) {
+                        $merged[count($merged)-1]['count']++;
+                        $merged[count($merged)-1]['times'][] = $timeStr;
+                        // override lat/lng to most recent
+                        $merged[count($merged)-1]['lat'] = (float)$r['lat'];
+                        $merged[count($merged)-1]['lng'] = (float)$r['lng'];
+                    } else {
+                        $merged[] = [
+                            'key'=>$key,
+                            'row'=>$r,
+                            'time'=>$timeStr,
+                            'times'=>[$timeStr],
+                            'count'=>1,
+                            'lat'=>(float)$r['lat'],
+                            'lng'=>(float)$r['lng'],
+                        ];
+                    }
+                }
+                foreach ($merged as $m):
+                  $r = $m['row'];
+                  $time = $m['time'];
+                  $times = $m['times'];
+                  $count = $m['count'];
+                  $note = (string)($r['note'] ?? '');
+                  $addr = (string)($r['address'] ?? '');
+                  [$cls, $icon] = $classify($note);
+                  $lat = $m['lat']; $lng = $m['lng'];
+                  $mapsUrl = ($lat && $lng) ? ('https://www.google.com/maps?q=' . rawurlencode($lat . ',' . $lng)) : '';
+                  $serviceArea = service_area_from_address($addr);
               ?>
               <div class="tl-row <?=$cls?>">
                 <div class="tl-time"><?=h($time)?></div>
                 <div class="tl-line"><span class="tl-dot"><i class="<?=$icon?>"></i></span></div>
                 <div class="tl-content">
-                  <div class="tl-title <?=$cls==='delivered'?'delivered':'intransit'?>"><?=h($note ?: 'Status update')?></div>
+                  <div class="tl-title <?=$cls==='delivered'?'delivered':'intransit'?>">
+                    <?=h($note ?: 'Status update')?>
+                    <?php if ($count>1): ?><span class="tl-count">×<?=$count?></span><?php endif; ?>
+                  </div>
                   <?php if ($addr): ?><div class="tl-sub"><?php echo h($upper($addr)); ?></div><?php endif; ?>
+                  <?php if ($serviceArea): ?><div class="tl-meta">Service area: <?=h($serviceArea)?></div><?php endif; ?>
                   <div class="tl-meta">
                     <a href="?tracking=<?=h($pkg['tracking_number'])?>">1 Unit: <?=h($pkg['tracking_number'])?></a>
-                    <?php if ($lat && $lng): ?> · <a href="<?=$mapsUrl?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
+                    <?php if ($mapsUrl): ?> · <a href="<?=$mapsUrl?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
+                    <?php if ($count>1 && count($times)>1): ?> · Times: <?=h(implode(', ', array_unique($times)))?><?php endif; ?>
                   </div>
                 </div>
               </div>
               <?php endforeach; ?>
             </div>
-          </div>
+          </details>
         <?php endforeach; ?>
       </div>
     <?php endif; ?>
@@ -528,6 +625,17 @@ $version_info = checkVersion();
       })();
 
       document.getElementById('printBtn')?.addEventListener('click', function(){ window.print(); });
+
+      // Update UTC offset with client's timezone
+      try {
+        const mins = -new Date().getTimezoneOffset();
+        const sign = mins >= 0 ? '+' : '-';
+        const abs = Math.abs(mins);
+        const h = String(Math.floor(abs / 60)).padStart(2,'0');
+        const m = String(abs % 60).padStart(2,'0');
+        const txt = `UTC${sign}${h}:${m}`;
+        document.querySelectorAll('.utc-offset').forEach(el=>{ el.textContent = `(${txt})`; });
+      } catch {}
     })();
   </script>
   <?php endif; ?>
