@@ -623,7 +623,6 @@ $version_info = $logged ? checkVersion() : null;
 <title>Admin • Package Tracker</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#D40511">
-<link rel="icon" href="../dhl.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 <!-- Icons -->
 <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
@@ -846,6 +845,51 @@ $version_info = $logged ? checkVersion() : null;
           <button id="crispSaveBtn"><i class="ri-save-3-line"></i> Save chat settings</button>
         </div>
       </form>
+
+      <!-- Edit Package Modal -->
+      <div id="editModal" class="modal" aria-hidden="true">
+        <div class="modal-dialog card">
+          <div class="row" style="justify-content:space-between; align-items:center;">
+            <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-edit-2-line"></i> Edit package <span class="badge" id="editTracking" style="margin-left:8px;"></span></h3>
+            <button id="editClose" class="btn-ghost"><i class="ri-close-line"></i> Close</button>
+          </div>
+          <div class="grid" style="margin-top:12px;">
+            <div class="row">
+              <div class="input-wrap" style="flex:1 1 260px;"><i class="ri-edit-line"></i><input type="text" id="editTitle" placeholder="Title" class="plain" style="width:100%"></div>
+              <div class="input-wrap" style="flex:1 1 220px;"><i class="ri-truck-line"></i><input type="text" id="editDelivery" placeholder="Delivery option" class="plain" style="width:100%"></div>
+            </div>
+            <div class="row">
+              <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-send-plane-line"></i><input type="text" id="editArriving" placeholder="Arriving (start)" class="plain" style="width:100%"></div>
+              <button type="button" id="editArrPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick start</button>
+            </div>
+            <div class="row">
+              <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-flag-line"></i><input type="text" id="editDestination" placeholder="Destination (end)" class="plain" style="width:100%"></div>
+              <button type="button" id="editDestPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick destination</button>
+            </div>
+            <div class="row">
+              <div class="input-wrap"><i class="ri-information-line"></i>
+                <select id="editStatus" class="plain">
+                  <option value="">— status —</option>
+                  <option value="created">Created</option>
+                  <option value="in_transit">In transit</option>
+                  <option value="delivered">Delivered</option>
+                </select>
+              </div>
+            </div>
+            <div class="row" style="align-items:flex-start;">
+              <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="editDescription" placeholder="Description"></textarea></div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <img id="editThumb" alt="Preview" style="max-width:160px; display:none; border-radius:10px; border:1px solid var(--border); background:#fff;">
+                <input type="file" id="editImage" accept="image/*">
+              </div>
+            </div>
+            <div class="row">
+              <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /Edit Package Modal -->
     </div>
   </div>
 
@@ -1178,13 +1222,12 @@ $version_info = $logged ? checkVersion() : null;
           m = L.marker([r.last_lat, r.last_lng], { draggable: true }).addTo(map);
           m.on('dragend', async (ev)=>{
             const ll = ev.target.getLatLng();
-            let addrAuto = '';
-            try { addrAuto = await reverseGeocode(ll.lat, ll.lng); } catch(e) { addrAuto = ''; }
-            const ok = await movePackage(r.id, ll.lat, ll.lng, addrAuto);
+            const ok = await movePackage(r.id, ll.lat, ll.lng, '');
             if (!ok) {
+              // revert on fail
               ev.target.setLatLng([r.last_lat, r.last_lng]);
             } else {
-              r.last_lat = ll.lat; r.last_lng = ll.lng; r.last_address = addrAuto || r.last_address || null;
+              r.last_lat = ll.lat; r.last_lng = ll.lng; r.last_address = r.last_address || null;
               m.bindPopup(markerPopupHtml(r));
               await loadList();
             }
@@ -1240,14 +1283,12 @@ $version_info = $logged ? checkVersion() : null;
     window.focusPkg = function(id){
       const r = currentData.find(x=>x.id===id);
       if (!r) return;
-      if (focusActive && focusedId === id) { exitFocus(); return; }
-      // center and open popup
       if (r.last_lat !== null && r.last_lng !== null) {
-        map.setView([r.last_lat, r.last_lng], 14);
-        const m = markers.get(id); if (m) m.openPopup();
+        map.setView([r.last_lat, r.last_lng], 15);
+        const m = markers.get(id);
+        if (m) m.openPopup();
       }
       showHistory(id, r.tracking_number);
-      enterFocus(r);
     }
 
     // Delete package
@@ -1321,6 +1362,7 @@ $version_info = $logged ? checkVersion() : null;
     }
 
     // Edit panel logic (modal)
+    const editImage = document.getElementById('editImage');
     let editId = null;
 
     window.openEdit = async function(id){
@@ -1329,6 +1371,7 @@ $version_info = $logged ? checkVersion() : null;
       const d = j.data;
       editId = d.id;
 
+      // Query modal elements locally and guard against nulls
       const getEl = (i)=>document.getElementById(i);
       const mModal = getEl('editModal');
       const mTracking = getEl('editTracking');
@@ -1340,7 +1383,10 @@ $version_info = $logged ? checkVersion() : null;
       const mDesc = getEl('editDescription');
       const mThumb = getEl('editThumb');
 
-      if (!mModal) { console.warn('Edit modal root element not found.'); return; }
+      if (!mModal) {
+        console.warn('Edit modal root element not found.');
+        return;
+      }
 
       if (mTracking) mTracking.textContent = d.tracking_number;
       if (mTitle) mTitle.value = d.title || '';
@@ -1356,207 +1402,169 @@ $version_info = $logged ? checkVersion() : null;
 
       mModal.classList.add('show');
       drawRouteFor(d);
-      initEditPickPreview(d);
+      initEditPickPreview(d); // add draggable start/dest markers and dashed line
     }
 
-    function closeEdit(){
+    function closeEdit(){ 
       const editModal = document.getElementById('editModal');
-      if (editModal) editModal.classList.remove('show');
-      clearRoute();
-      clearPickArtifacts();
-      applyPickHighlight(false);
-      editId=null;
-      const imgInput = document.getElementById('editImage');
-      if (imgInput) imgInput.value='';
+      if (editModal) editModal.classList.remove('show'); 
+      clearRoute(); 
+      clearPickArtifacts(); 
+      applyPickHighlight(false); 
+      editId=null; 
+      editImage.value=''; 
     }
+    document.getElementById('editClose')?.addEventListener('click', closeEdit);
+    document.getElementById('editModal')?.addEventListener('click', (e)=>{ if(e.target === document.getElementById('editModal')) closeEdit(); });
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && document.getElementById('editModal')?.classList.contains('show')) closeEdit(); });
 
-    // Delegated handlers to work even if modal is placed after scripts
-    document.addEventListener('click', async (e)=>{
-      const btnClose = e.target.closest && e.target.closest('#editClose');
-      if (btnClose) { e.preventDefault(); closeEdit(); return; }
-      if (e.target && e.target.id === 'editModal') { closeEdit(); return; }
-      const btnSave = e.target.closest && e.target.closest('#editSave');
-      if (btnSave) {
-        e.preventDefault();
-        if(!editId) return;
-        const fd = new FormData();
-        fd.append('action','updatePackage');
-        fd.append('id', editId);
-        fd.append('title', document.getElementById('editTitle')?.value.trim() || '');
-        fd.append('arriving', document.getElementById('editArriving')?.value.trim() || '');
-        fd.append('destination', document.getElementById('editDestination')?.value.trim() || '');
-        fd.append('delivery_option', document.getElementById('editDelivery')?.value.trim() || '');
-        fd.append('status', document.getElementById('editStatus')?.value.trim() || '');
-        fd.append('description', document.getElementById('editDescription')?.value.trim() || '');
-        const imgInput = document.getElementById('editImage');
-        if (imgInput && imgInput.files && imgInput.files[0]) fd.append('newImage', imgInput.files[0]);
-        const r = await fetch('', { method:'POST', body: fd });
-        const j = await r.json();
-        if(!j.ok){ alert(j.error || 'Save failed'); return; }
-        await loadList();
-        closeEdit();
-      }
+    document.getElementById('editSave')?.addEventListener('click', async ()=>{
+      if(!editId) return;
+      const fd = new FormData();
+      fd.append('action','updatePackage');
+      fd.append('id', editId);
+      fd.append('title', document.getElementById('editTitle')?.value.trim());
+      fd.append('arriving', document.getElementById('editArriving')?.value.trim());
+      fd.append('destination', document.getElementById('editDestination')?.value.trim());
+      fd.append('delivery_option', document.getElementById('editDelivery')?.value.trim());
+      fd.append('status', document.getElementById('editStatus')?.value.trim());
+      fd.append('description', document.getElementById('editDescription')?.value.trim());
+      if(editImage.files[0]) fd.append('newImage', editImage.files[0]);
+      const r = await fetch('', { method:'POST', body: fd });
+      const j = await r.json();
+      if(!j.ok){ alert(j.error || 'Save failed'); return; }
+      await loadList();
+      closeEdit();
     });
 
-    // Focus mode: hide other markers, show start/destination/current
-    let focusActive = false, focusedId = null;
-    function removeNonFocusedMarkers(){
-      for (const [id, m] of markers) {
-        if (focusedId !== null && id !== focusedId) {
-          if (map.hasLayer(m)) map.removeLayer(m);
-        }
-      }
-    }
-    function restoreAllMarkers(){
-      for (const [id, m] of markers) {
-        if (!map.hasLayer(m)) m.addTo(map);
-      }
-    }
-    let focusBanner = null;
-    function showFocusBanner(text){
-      hideFocusBanner();
-      focusBanner = document.createElement('div');
-      focusBanner.style.position = 'fixed';
-      focusBanner.style.top = '90px';
-      focusBanner.style.right = '20px';
-      focusBanner.style.zIndex = '1500';
-      focusBanner.style.background = 'rgba(255,255,255,0.95)';
-      focusBanner.style.border = '1px solid var(--border)';
-      focusBanner.style.borderRadius = '10px';
-      focusBanner.style.boxShadow = '0 6px 14px rgba(0,0,0,0.15)';
-      focusBanner.style.padding = '8px 10px';
-      focusBanner.style.display = 'flex';
-      focusBanner.style.gap = '8px';
-      const span = document.createElement('span');
-      span.textContent = text;
-      const btn = document.createElement('button');
-      btn.className = 'btn-ghost';
-      btn.innerHTML = '<i class="ri-eye-off-line"></i> Exit focus';
-      btn.addEventListener('click', exitFocus);
-      focusBanner.appendChild(span);
-      focusBanner.appendChild(btn);
-      document.body.appendChild(focusBanner);
-    }
-    function hideFocusBanner(){ if (focusBanner && focusBanner.parentNode){ focusBanner.parentNode.removeChild(focusBanner); } focusBanner = null; }
+    // Search / refresh
+    $('#search').addEventListener('input', ()=>{
+      // debounce would be nice; keep simple
+      loadList();
+    });
+    $('#refreshBtn').addEventListener('click', loadList);
 
-    function enterFocus(row){
-      focusActive = true; focusedId = row.id;
-      removeNonFocusedMarkers();
-      drawRouteFor(row);
-      showFocusBanner('Focusing: ' + row.tracking_number);
-    }
-    function exitFocus(){
-      focusActive = false; focusedId = null;
-      hideFocusBanner();
-      clearRoute();
-      restoreAllMarkers();
-      renderMarkers(currentData);
-    }
+    // Add package (with optional address geocoding and image upload)
+    $('#addBtn').addEventListener('click', async (e)=>{
+      e?.preventDefault?.();
+      const tracking = $('#newTracking').value.trim();
+      const title    = $('#newTitle').value.trim();
+      const addr     = $('#newAddress').value.trim();
+      const arriving = $('#newArriving').value.trim();
+      const destination = $('#newDestination').value.trim();
+      const deliveryOption = $('#newDeliveryOption')?.value.trim() || '';
+      const description = $('#newDescription').value.trim();
+      const imageInput = $('#newImage');
+      const imageFile = imageInput.files[0];
+      let lat = null, lng = null, address = '';
 
-    // Override focus action to toggle focus mode
-    window.focusPkg = function(id){
-      const r = currentData.find(x=>x.id===id);
-      if (!r) return;
-      if (focusActive && focusedId === id) { exitFocus(); return; }
-      // center and open popup
-      if (r.last_lat !== null && r.last_lng !== null) {
-        map.setView([r.last_lat, r.last_lng], 14);
-        const m = markers.get(id); if (m) m.openPopup();
-      }
-      showHistory(id, r.tracking_number);
-      enterFocus(r);
-    }
+      if (!tracking) { alert('Tracking number is required'); return; }
 
-    // Respect focus mode in markers rendering
-    function renderMarkers(rows) {
-      // remove markers for rows no longer present
-      const ids = new Set(rows.map(r => r.id));
-      for (const [id, m] of markers) {
-        if (!ids.has(id)) { map.removeLayer(m); markers.delete(id); }
+      if (addr) {
+        try {
+          const url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(addr);
+          const r = await fetch(url, { headers:{'Accept':'application/json'} });
+          const arr = await r.json();
+          if (arr.length) {
+            lat = parseFloat(arr[0].lat);
+            lng = parseFloat(arr[0].lon);
+            address = addr;
+          }
+        } catch(e){ /* ignore geocode error */ }
       }
-      for (const r of rows) {
-        if (r.last_lat === null || r.last_lng === null) continue;
-        if (focusActive && r.id !== focusedId) { continue; }
-        let m = markers.get(r.id);
-        if (!m) {
-          m = L.marker([r.last_lat, r.last_lng], { draggable: true }).addTo(map);
-          m.on('dragend', async (ev)=>{
-            const ll = ev.target.getLatLng();
-            let addrAuto = '';
-            try { addrAuto = await reverseGeocode(ll.lat, ll.lng); } catch(e) { addrAuto = ''; }
-            const ok = await movePackage(r.id, ll.lat, ll.lng, addrAuto);
-            if (!ok) {
-              ev.target.setLatLng([r.last_lat, r.last_lng]);
-            } else {
-              r.last_lat = ll.lat; r.last_lng = ll.lng; r.last_address = addrAuto || r.last_address || null;
-              m.bindPopup(markerPopupHtml(r));
-              await loadList();
-            }
-          });
-          m.bindPopup(markerPopupHtml(r));
-          markers.set(r.id, m);
-        } else {
-          m.setLatLng([r.last_lat, r.last_lng]);
-          if (!map.hasLayer(m)) m.addTo(map);
-          m.bindPopup(markerPopupHtml(r));
-        }
+
+      const formData = new FormData();
+      formData.append('action', 'addPackage');
+      formData.append('tracking', tracking);
+      formData.append('title', title);
+      if (lat != null && lng != null) {
+        formData.append('lat', String(lat));
+        formData.append('lng', String(lng));
       }
-      if (!focusActive && rows.length > 0) {
-        const pts = rows.filter(r=>r.last_lat!==null && r.last_lng!==null).map(r=>[r.last_lat, r.last_lng]);
-        if (pts.length > 0) { map.fitBounds(pts, { padding:[30,30] }); }
-      } else if (focusActive && focusedId){
-        const r = rows.find(x=>x.id===focusedId);
-        if (r && r.last_lat!==null && r.last_lng!==null) map.setView([r.last_lat, r.last_lng], 14);
+      if (address) formData.append('address', address);
+      formData.append('arriving', arriving);
+      formData.append('destination', destination);
+      formData.append('delivery_option', deliveryOption);
+      formData.append('description', description);
+      if (imageFile) {
+        formData.append('newImage', imageFile);
       }
+
+      try{
+        const resp = await fetch('', { method:'POST', body: formData });
+        const j = await resp.json();
+        if (!j.ok) { alert(j.error || 'Create failed'); return; }
+      }catch(err){
+        alert('Network or server error while creating');
+        return;
+      }
+      // reset form
+      $('#newTracking').value = '';
+      $('#newTitle').value = '';
+      $('#newAddress').value = '';
+      $('#newArriving').value = '';
+      $('#newDestination').value = '';
+      if ($('#newDeliveryOption')) $('#newDeliveryOption').value = '';
+      $('#newDescription').value = '';
+      imageInput.value = '';
+      await loadList();
+    });
+
+    // Change password
+    document.getElementById('changePasswordBtn')?.addEventListener('click', async ()=>{
+      const fd = new FormData();
+      fd.append('action','changePassword');
+      fd.append('currentPassword', document.getElementById('currentPassword').value);
+      fd.append('newPassword', document.getElementById('newPassword').value);
+      fd.append('confirmPassword', document.getElementById('confirmPassword').value);
+      const r = await fetch('', {method:'POST', body:fd});
+      const j = await r.json();
+      if (j.ok) alert('Password changed'); else alert(j.error||'Error');
+    });
+
+    // Crisp settings
+    async function loadCrisp(){
+      const j = await post('getCrispSettings');
+      if (!j.ok) return;
+      document.getElementById('crispEnabled').checked = j.data.enabled === '1';
+      document.getElementById('crispWebsiteId').value = j.data.website_id || '';
+      document.getElementById('crispSchedEnabled').checked = j.data.sched_enabled === '1';
+      const days = (j.data.days||'1,2,3,4,5').split(',').map(x=>parseInt(x,10));
+      document.querySelectorAll('.crispDay').forEach(cb=>{ cb.checked = days.includes(parseInt(cb.value,10)); });
+      document.getElementById('crispStart').value = j.data.start || '09:00';
+      document.getElementById('crispEnd').value = j.data.end || '18:00';
     }
+    loadCrisp();
+
+    document.getElementById('crispSaveBtn')?.addEventListener('click', async ()=>{
+      const days = Array.from(document.querySelectorAll('.crispDay:checked')).map(cb=>cb.value).join(',');
+      const payload = {
+        enabled: document.getElementById('crispEnabled').checked ? '1' : '0',
+        website_id: document.getElementById('crispWebsiteId').value.trim(),
+        sched_enabled: document.getElementById('crispSchedEnabled').checked ? '1' : '0',
+        days,
+        start: document.getElementById('crispStart').value || '09:00',
+        end: document.getElementById('crispEnd').value || '18:00',
+      };
+      const j = await post('saveCrispSettings', payload);
+      if (j.ok) alert('Saved'); else alert(j.error||'Save failed');
+    });
   </script>
 <?php endif; ?>
 </main>
-
-<!-- Edit Package Modal moved next to body root for correct overlay behavior across browsers (e.g., Safari) -->
-<div id="editModal" class="modal" aria-hidden="true">
-  <div class="modal-dialog card">
-    <div class="row" style="justify-content:space-between; align-items:center;">
-      <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-edit-2-line"></i> Edit package <span class="badge" id="editTracking" style="margin-left:8px;"></span></h3>
-      <button id="editClose" class="btn-ghost"><i class="ri-close-line"></i> Close</button>
-    </div>
-    <div class="grid" style="margin-top:12px;">
-      <div class="row">
-        <div class="input-wrap" style="flex:1 1 260px;"><i class="ri-edit-line"></i><input type="text" id="editTitle" placeholder="Title" class="plain" style="width:100%"></div>
-        <div class="input-wrap" style="flex:1 1 220px;"><i class="ri-truck-line"></i><input type="text" id="editDelivery" placeholder="Delivery option" class="plain" style="width:100%"></div>
-      </div>
-      <div class="row">
-        <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-send-plane-line"></i><input type="text" id="editArriving" placeholder="Arriving (start)" class="plain" style="width:100%"></div>
-        <button type="button" id="editArrPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick start</button>
-      </div>
-      <div class="row">
-        <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-flag-line"></i><input type="text" id="editDestination" placeholder="Destination (end)" class="plain" style="width:100%"></div>
-        <button type="button" id="editDestPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick destination</button>
-      </div>
-      <div class="row">
-        <div class="input-wrap"><i class="ri-information-line"></i>
-          <select id="editStatus" class="plain">
-            <option value="">— status —</option>
-            <option value="created">Created</option>
-            <option value="in_transit">In transit</option>
-            <option value="delivered">Delivered</option>
-          </select>
-        </div>
-      </div>
-      <div class="row" style="align-items:flex-start;">
-        <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="editDescription" placeholder="Description"></textarea></div>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <img id="editThumb" alt="Preview" style="max-width:160px; display:none; border-radius:10px; border:1px solid var(--border); background:#fff;">
-          <input type="file" id="editImage" accept="image/*">
-        </div>
-      </div>
-      <div class="row">
-        <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <?php require_once __DIR__ . '/../footer.php'; ?>
+<script>
+    // Update Footer
+    document.getElementById('updateBtnFooter')?.addEventListener('click', async ()=>{
+      if (!confirm('Are you sure you want to update from the repository? This may overwrite local changes.')) return;
+      const j = await post('update');
+      if (j.ok) {
+        alert('Updated successfully!');
+        location.reload();
+      } else {
+        alert('Update failed: ' + j.error);
+      }
+    });
+</script>
 </body>
 </html>
