@@ -902,10 +902,84 @@ $version_info = $logged ? checkVersion() : null;
       leavePickMode();
     }
 
-    $('#newArrPickBtn')?.addEventListener('click', ()=> setPickMode('start','new'));
-    $('#newDestPickBtn')?.addEventListener('click', ()=> setPickMode('dest','new'));
-    $('#editArrPickBtn')?.addEventListener('click', ()=> setPickMode('start','edit'));
-    $('#editDestPickBtn')?.addEventListener('click', ()=> setPickMode('dest','edit'));
+    // New: if an address is already entered, geocode it and place/move the marker automatically
+    async function tryPlaceMarkerFromAddress(target, ctx){
+      const sel = (ctx === 'new')
+        ? (target === 'start' ? '#newArriving' : '#newDestination')
+        : (target === 'start' ? '#editArriving' : '#editDestination');
+      const inp = document.querySelector(sel);
+      const val = (inp?.value || '').trim();
+      if (!val) return false;
+      const ll = await geocode(val);
+      if (!ll) return false;
+      const latlng = { lat: ll[0], lng: ll[1] };
+
+      if (target === 'start') {
+        if (!pickStartMarker){
+          pickStartMarker = L.marker(latlng, { draggable:true, icon:startIconPick }).addTo(map);
+          pickStartMarker.on('dragend', async ()=>{
+            const ll2 = pickStartMarker.getLatLng();
+            const addr = await reverseGeocode(ll2.lat, ll2.lng);
+            if (inp) inp.value = addr;
+            updatePickPreview();
+          });
+        } else { pickStartMarker.setLatLng(latlng); }
+      } else {
+        if (!pickDestMarker){
+          pickDestMarker = L.marker(latlng, { draggable:true, icon:destIconPick }).addTo(map);
+          pickDestMarker.on('dragend', async ()=>{
+            const ll2 = pickDestMarker.getLatLng();
+            const addr = await reverseGeocode(ll2.lat, ll2.lng);
+            if (inp) inp.value = addr;
+            updatePickPreview();
+          });
+        } else { pickDestMarker.setLatLng(latlng); }
+      }
+      updatePickPreview();
+      map.flyTo(latlng, 13);
+      return true;
+    }
+
+    $('#newArrPickBtn')?.addEventListener('click', async (ev)=>{
+      const btn = ev.currentTarget;
+      if (btn) { btn.disabled = true; var oldHtml = btn.innerHTML; btn.innerHTML = '<i class="ri-compass-3-line"></i> Searching…'; }
+      try{
+        const ok = await tryPlaceMarkerFromAddress('start','new');
+        if (!ok) setPickMode('start','new');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
+      }
+    });
+    $('#newDestPickBtn')?.addEventListener('click', async (ev)=>{
+      const btn = ev.currentTarget;
+      if (btn) { btn.disabled = true; var oldHtml = btn.innerHTML; btn.innerHTML = '<i class="ri-compass-3-line"></i> Searching…'; }
+      try{
+        const ok = await tryPlaceMarkerFromAddress('dest','new');
+        if (!ok) setPickMode('dest','new');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
+      }
+    });
+    $('#editArrPickBtn')?.addEventListener('click', async (ev)=>{
+      const btn = ev.currentTarget;
+      if (btn) { btn.disabled = true; var oldHtml = btn.innerHTML; btn.innerHTML = '<i class="ri-compass-3-line"></i> Searching…'; }
+      try{
+        const ok = await tryPlaceMarkerFromAddress('start','edit');
+        if (!ok) setPickMode('start','edit');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
+      }
+    });
+    $('#editDestPickBtn')?.addEventListener('click', async (ev)=>{
+      const btn = ev.currentTarget;
+      if (btn) { btn.disabled = true; var oldHtml = btn.innerHTML; btn.innerHTML = '<i class="ri-compass-3-line"></i> Searching…'; }
+      try{
+        const ok = await tryPlaceMarkerFromAddress('dest','edit');
+        if (!ok) setPickMode('dest','edit');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
+      }
+    });
 
     // Replace map click handler to support pick mode vs create temp marker
     let tempMarker = null;
