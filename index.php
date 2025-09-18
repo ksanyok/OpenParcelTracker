@@ -157,27 +157,35 @@ $version_info = checkVersion();
     .col-right #map{ flex:1 1 auto; height:auto; min-height:420px; }
   }
 
-  /* DHL-like timeline */
+  /* DHL-like timeline (wide on desktop) */
   .timeline{ position:relative; }
-  .tl-day{ position:relative; margin:10px 0 16px 6px; padding-left:18px; border-left:2px solid #e6e9ee; }
-  .tl-date{ font-weight:600; color:#111; margin:6px 0 8px; }
-  .tl-list{ list-style:none; margin:0; padding:0; }
-  .tl-item{ position:relative; margin:8px 0; padding-left:18px; }
-  .tl-item::before{ content:""; position:absolute; left:-10px; top:8px; width:10px; height:10px; border-radius:50%; background:#fff; border:2px solid #c5ced8; }
-  .tl-item.delivered::before{ background:#16a34a; border-color:#0f7a37; }
-  .tl-item .tl-time{ font-size:12px; color:#5b6470; margin-right:8px; }
-  .tl-item .tl-title{ font-weight:600; }
-  .tl-item .tl-sub{ font-size:12px; color:#333; }
+  .tl-day{ position:relative; padding:12px 0 4px; border-top:1px solid #e6e9ee; }
+  .tl-day:first-child{ border-top:0; }
+  .tl-day-header{ font-weight:700; color:#111; margin:0 0 6px; display:flex; align-items:center; gap:8px; }
+  .tl-rows{ }
+  .tl-row{ display:grid; grid-template-columns: 160px 28px 1fr; gap:12px; align-items:start; padding:10px 0; }
+  @media (max-width: 720px){ .tl-row{ grid-template-columns: 90px 24px 1fr; } }
+  .tl-time{ color:#5b6470; font-size:13px; white-space:nowrap; }
+  .tl-line{ position:relative; }
+  .tl-line::before{ content:""; position:absolute; left:50%; top:-14px; bottom:-14px; width:2px; transform:translateX(-50%); background:#e6e9ee; }
+  .tl-dot{ position:relative; z-index:1; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:#fff; border:2px solid #c5ced8; margin-left:3px; box-shadow:0 0 0 4px rgba(255,255,255,0.8); }
+  .tl-dot i{ font-size:14px; }
+  .tl-row.delivered .tl-dot{ background:#16a34a; border-color:#0f7a37; color:#fff; }
+  .tl-row.courier .tl-dot{ background:#ffcd00; border-color:#e6b800; color:#111; }
+  .tl-row.departed .tl-dot{ background:#D40511; border-color:#b1040e; color:#fff; }
+  .tl-row.arrived .tl-dot{ background:#fff; border-color:#D40511; color:#D40511; }
+  .tl-row.customs .tl-dot{ background:#fff; border-color:#ff7a00; color:#ff7a00; }
+  .tl-title{ font-weight:700; }
+  .tl-title.delivered{ color:#0f7a37; }
+  .tl-title.intransit{ color:#b1040e; }
+  .tl-sub{ font-size:13px; color:#333; margin-top:2px; }
+  .tl-meta{ font-size:12px; color:#5b6470; margin-top:3px; }
+  .tl-meta a{ color:#b1040e; text-decoration:underline; }
 
-  /* Print styles */
+  /* Print styles tweak for timeline */
   @media print {
-    *{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .bg-animated, .update-notice, form, #map, .details-toggle summary, .btn-secondary, #pkgToolbar, .brand-badge { display:none !important; }
-    header{ background:#fff !important; color:#111 !important; box-shadow:none !important; }
-    .logo-pill{ box-shadow:none !important; }
-    .card, .progress-card{ background:#fff !important; box-shadow:none !important; border-color:#ccc !important; }
-    main{ padding:0 0 10px 0; }
-    body{ background:#fff; }
+    .tl-line::before{ background:#bbb !important; }
+    .tl-dot{ box-shadow:none !important; }
   }
 </style>
 </head>
@@ -290,31 +298,57 @@ $version_info = checkVersion();
     <?php else: ?>
       <div class="timeline">
         <?php
+          // Group by day (already DESC order)
           $groups = [];
           foreach ($history as $row) {
             $ts = strtotime((string)$row['created_at']);
-            $day = $ts ? date('Y-m-d', $ts) : 'unknown';
-            $groups[$day][] = $row;
+            $dayKey = $ts ? date('Y-m-d', $ts) : 'unknown';
+            $groups[$dayKey][] = $row;
           }
-          foreach ($groups as $day => $rows):
-            $label = date('l, d F Y', strtotime($day));
+          krsort($groups); // ensure newest day first
+
+          // helper: classify by note keywords
+          $classify = function(string $note): array {
+            $n = mb_strtolower($note);
+            $cls = 'intransit'; $icon = 'ri-alert-line';
+            if ($n === '') { return [$cls, $icon]; }
+            if (str_contains($n, 'достав') || str_contains($n, 'deliver')) { return ['delivered', 'ri-check-line']; }
+            if (str_contains($n, 'кур') || str_contains($n, 'courier')) { return ['courier', 'ri-truck-line']; }
+            if (str_contains($n, 'прибув') || str_contains($n, 'arriv')) { return ['arrived', 'ri-inbox-archive-line']; }
+            if (str_contains($n, 'залиш') || str_contains($n, 'depart') || str_contains($n, 'left')) { return ['departed', 'ri-flight-takeoff-line']; }
+            if (str_contains($n, 'митн') || str_contains($n, 'custom')) { return ['customs', 'ri-shield-check-line']; }
+            return [$cls, $icon];
+          };
+          $upper = function(string $s): string { return function_exists('mb_strtoupper') ? mb_strtoupper($s) : strtoupper($s); };
         ?>
+        <?php foreach ($groups as $day => $rows): ?>
+          <?php $label = $day !== 'unknown' ? strftime('%A, %d %B %Y', strtotime($day)) : '—'; ?>
           <div class="tl-day">
-            <div class="tl-date"><?=$label?></div>
-            <ul class="tl-list">
+            <div class="tl-day-header"><?=$label?></div>
+            <div class="tl-rows">
               <?php foreach ($rows as $r):
-                $ts = strtotime((string)$r['created_at']);
+                $ts  = strtotime((string)$r['created_at']);
                 $time = $ts ? date('H:i', $ts) : '';
                 $note = (string)($r['note'] ?? '');
                 $addr = (string)($r['address'] ?? '');
-                $isDelivered = stripos($note, 'deliver') !== false || stripos($note, 'достав') !== false;
+                $lat = (float)$r['lat']; $lng = (float)$r['lng'];
+                [$cls, $icon] = $classify($note);
+                $mapsUrl = 'https://www.google.com/maps?q=' . rawurlencode($lat . ',' . $lng);
               ?>
-                <li class="tl-item <?=$isDelivered ? 'delivered' : ''?>">
-                  <div><span class="tl-time"><?php echo h($time); ?></span><span class="tl-title"><?php echo h($note ?: 'Status update'); ?></span></div>
-                  <?php if ($addr): ?><div class="tl-sub"><?php echo h($addr); ?></div><?php endif; ?>
-                </li>
+              <div class="tl-row <?=$cls?>">
+                <div class="tl-time"><?=h($time)?></div>
+                <div class="tl-line"><span class="tl-dot"><i class="<?=$icon?>"></i></span></div>
+                <div class="tl-content">
+                  <div class="tl-title <?=$cls==='delivered'?'delivered':'intransit'?>"><?=h($note ?: 'Status update')?></div>
+                  <?php if ($addr): ?><div class="tl-sub"><?php echo h($upper($addr)); ?></div><?php endif; ?>
+                  <div class="tl-meta">
+                    <a href="?tracking=<?=h($pkg['tracking_number'])?>">1 Unit: <?=h($pkg['tracking_number'])?></a>
+                    <?php if ($lat && $lng): ?> · <a href="<?=$mapsUrl?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
+                  </div>
+                </div>
+              </div>
               <?php endforeach; ?>
-            </ul>
+            </div>
           </div>
         <?php endforeach; ?>
       </div>
