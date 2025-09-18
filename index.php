@@ -88,6 +88,9 @@ $version_info = checkVersion();
   header{ position: relative; z-index:1; padding:18px 20px; background: linear-gradient(90deg, var(--brand-red) 0%, #e50f1b 35%, var(--brand-yellow) 100%); color:#fff; display:flex; align-items:center; justify-content:space-between; gap:12px; }
   header h1{margin:0; font-size:20px; letter-spacing:.3px; display:flex; align-items:center; gap:8px}
   .brand-badge{display:inline-block; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.25);}  
+  /* Logo pill for contrast on gradient */
+  .logo-pill{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; background:#fff; border-radius:12px; box-shadow:0 6px 14px rgba(0,0,0,0.15); }
+  .brand-logo{ height:22px; width:auto; display:block; }
 
   main{position: relative; z-index:1; padding:20px; max-width:1100px; margin:0 auto; width:100%; flex:1;}
   footer{position: relative; z-index:3;}
@@ -105,7 +108,7 @@ $version_info = checkVersion();
   button:active{transform: translateY(0)}
   .btn-secondary{background: linear-gradient(180deg, #ffcd00, #f1b800); color:#111; box-shadow:0 6px 14px rgba(255,204,0,0.35)}
 
-  #map{height:420px; border-radius:16px; border:1px solid rgba(255,255,255,0.5); overflow:hidden; box-shadow: var(--shadow);}
+  #map{height:420px; border-radius:16px; border:1px solid rgba(255,255,255,0.5); overflow:hidden; box-shadow: var(--shadow);} 
   table{width:100%; border-collapse:collapse;}
   th, td{padding:10px 10px; border-bottom:1px solid #eceff3; text-align:left;}
   .muted{color:var(--muted);} 
@@ -153,6 +156,29 @@ $version_info = checkVersion();
     .col-right > .card{ height:100%; display:flex; flex-direction:column; }
     .col-right #map{ flex:1 1 auto; height:auto; min-height:420px; }
   }
+
+  /* DHL-like timeline */
+  .timeline{ position:relative; }
+  .tl-day{ position:relative; margin:10px 0 16px 6px; padding-left:18px; border-left:2px solid #e6e9ee; }
+  .tl-date{ font-weight:600; color:#111; margin:6px 0 8px; }
+  .tl-list{ list-style:none; margin:0; padding:0; }
+  .tl-item{ position:relative; margin:8px 0; padding-left:18px; }
+  .tl-item::before{ content:""; position:absolute; left:-10px; top:8px; width:10px; height:10px; border-radius:50%; background:#fff; border:2px solid #c5ced8; }
+  .tl-item.delivered::before{ background:#16a34a; border-color:#0f7a37; }
+  .tl-item .tl-time{ font-size:12px; color:#5b6470; margin-right:8px; }
+  .tl-item .tl-title{ font-weight:600; }
+  .tl-item .tl-sub{ font-size:12px; color:#333; }
+
+  /* Print styles */
+  @media print {
+    *{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .bg-animated, .update-notice, form, #map, .details-toggle summary, .btn-secondary, #pkgToolbar, .brand-badge { display:none !important; }
+    header{ background:#fff !important; color:#111 !important; box-shadow:none !important; }
+    .logo-pill{ box-shadow:none !important; }
+    .card, .progress-card{ background:#fff !important; box-shadow:none !important; border-color:#ccc !important; }
+    main{ padding:0 0 10px 0; }
+    body{ background:#fff; }
+  }
 </style>
 </head>
 <body>
@@ -162,7 +188,10 @@ $version_info = checkVersion();
   <span class="blob b3"></span>
 </div>
 <header>
-  <h1><i class="ri-truck-line"></i> Package Tracker</h1>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span class="logo-pill"><img src="dhl-logo.svg" alt="Logo" class="brand-logo"></span>
+    <h1>Package Tracker</h1>
+  </div>
   <span class="brand-badge"><i class="ri-flashlight-line" style="margin-right:6px;"></i>Fast • Reliable</span>
 </header>
 <?php if ($version_info && $version_info['update_available']): ?>
@@ -187,6 +216,11 @@ $version_info = checkVersion();
   <?php endif; ?>
 
   <?php if ($pkg): ?>
+  <!-- Toolbar: print -->
+  <div id="pkgToolbar" class="row" style="justify-content:flex-end; margin: -4px 0 8px 0;">
+    <button id="printBtn" class="btn-secondary" title="Print package details"><i class="ri-printer-line"></i> Print</button>
+  </div>
+
   <!-- Progress widget placed above the two columns -->
   <div id="progressCard" class="progress-card" style="margin-bottom:16px; display:none;">
     <div class="row" style="justify-content:space-between; align-items:center;">
@@ -248,32 +282,42 @@ $version_info = checkVersion();
     </div>
   </div>
 
-  <!-- Movement history remains full-width below -->
+  <!-- Movement history timeline -->
   <div class="card" style="margin-top:16px;">
     <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-route-line"></i> Movement history</h3>
     <?php if (!$history): ?>
       <p class="muted">No history yet.</p>
     <?php else: ?>
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Coordinates</th>
-            <th>Address</th>
-            <th>Note</th>
-          </tr>
-        </thead>
-        <tbody>
-        <?php foreach ($history as $row): ?>
-          <tr>
-            <td><?=h((string)$row['created_at'])?></td>
-            <td><?=h((string)$row['lat'])?>, <?=h((string)$row['lng'])?></td>
-            <td><?=h((string)($row['address'] ?? ''))?></td>
-            <td><?=h((string)($row['note'] ?? ''))?></td>
-          </tr>
+      <div class="timeline">
+        <?php
+          $groups = [];
+          foreach ($history as $row) {
+            $ts = strtotime((string)$row['created_at']);
+            $day = $ts ? date('Y-m-d', $ts) : 'unknown';
+            $groups[$day][] = $row;
+          }
+          foreach ($groups as $day => $rows):
+            $label = date('l, d F Y', strtotime($day));
+        ?>
+          <div class="tl-day">
+            <div class="tl-date"><?=$label?></div>
+            <ul class="tl-list">
+              <?php foreach ($rows as $r):
+                $ts = strtotime((string)$r['created_at']);
+                $time = $ts ? date('H:i', $ts) : '';
+                $note = (string)($r['note'] ?? '');
+                $addr = (string)($r['address'] ?? '');
+                $isDelivered = stripos($note, 'deliver') !== false || stripos($note, 'достав') !== false;
+              ?>
+                <li class="tl-item <?=$isDelivered ? 'delivered' : ''?>">
+                  <div><span class="tl-time"><?php echo h($time); ?></span><span class="tl-title"><?php echo h($note ?: 'Status update'); ?></span></div>
+                  <?php if ($addr): ?><div class="tl-sub"><?php echo h($addr); ?></div><?php endif; ?>
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
         <?php endforeach; ?>
-        </tbody>
-      </table>
+      </div>
     <?php endif; ?>
   </div>
 
@@ -448,6 +492,8 @@ $version_info = checkVersion();
           }
         }
       })();
+
+      document.getElementById('printBtn')?.addEventListener('click', function(){ window.print(); });
     })();
   </script>
   <?php endif; ?>
