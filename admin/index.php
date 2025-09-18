@@ -762,7 +762,7 @@ $version_info = $logged ? checkVersion() : null;
       <hr style="margin:16px 0; border:0; border-top:1px solid var(--border);">
 
       <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-box-3-line"></i> New package</h3>
-      <form id="addForm" class="grid" enctype="multipart/form-data">
+      <form id="addForm" class="grid" enctype="multipart/form-data" onsubmit="return false;">
         <div class="row">
           <div class="input-wrap"><i class="ri-hashtag"></i><input type="text" id="newTracking" placeholder="Tracking number *" class="plain" required></div>
           <div class="input-wrap"><i class="ri-edit-line"></i><input type="text" id="newTitle" placeholder="Title (optional)" class="plain"></div>
@@ -784,7 +784,7 @@ $version_info = $logged ? checkVersion() : null;
           <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="newDescription" placeholder="Images and Description"></textarea></div>
           <div style="display:flex; align-items:center; gap:10px;">
             <input type="file" id="newImage" accept="image/*">
-            <button id="addBtn"><i class="ri-add-circle-line"></i> Create</button>
+            <button id="addBtn" type="button"><i class="ri-add-circle-line"></i> Create</button>
           </div>
         </div>
         <p class="hint">If address is provided, it will be geocoded via Nominatim and used as initial coordinates.</p>
@@ -1383,7 +1383,8 @@ $version_info = $logged ? checkVersion() : null;
     $('#refreshBtn').addEventListener('click', loadList);
 
     // Add package (with optional address geocoding and image upload)
-    $('#addBtn').addEventListener('click', async ()=>{
+    $('#addBtn').addEventListener('click', async (e)=>{
+      e?.preventDefault?.();
       const tracking = $('#newTracking').value.trim();
       const title    = $('#newTitle').value.trim();
       const addr     = $('#newAddress').value.trim();
@@ -1414,7 +1415,6 @@ $version_info = $logged ? checkVersion() : null;
       formData.append('action', 'addPackage');
       formData.append('tracking', tracking);
       formData.append('title', title);
-      // Append coords only if resolved to avoid sending "null" which becomes 0 on PHP side
       if (lat != null && lng != null) {
         formData.append('lat', String(lat));
         formData.append('lng', String(lng));
@@ -1428,8 +1428,14 @@ $version_info = $logged ? checkVersion() : null;
         formData.append('newImage', imageFile);
       }
 
-      const j = await fetch('', { method:'POST', body: formData }).then(r => r.json());
-      if (!j.ok) { alert(j.error || 'Create failed'); return; }
+      try{
+        const resp = await fetch('', { method:'POST', body: formData });
+        const j = await resp.json();
+        if (!j.ok) { alert(j.error || 'Create failed'); return; }
+      }catch(err){
+        alert('Network or server error while creating');
+        return;
+      }
       // reset form
       $('#newTracking').value = '';
       $('#newTitle').value = '';
