@@ -1322,7 +1322,6 @@ $version_info = $logged ? checkVersion() : null;
     }
 
     // Edit panel logic (modal)
-    const editImage = document.getElementById('editImage');
     let editId = null;
 
     window.openEdit = async function(id){
@@ -1372,30 +1371,47 @@ $version_info = $logged ? checkVersion() : null;
       clearPickArtifacts(); 
       applyPickHighlight(false); 
       editId=null; 
-      editImage.value=''; 
+      const imgInp = document.getElementById('editImage'); if (imgInp) imgInp.value='';
     }
-    document.getElementById('editClose')?.addEventListener('click', closeEdit);
-    document.getElementById('editModal')?.addEventListener('click', (e)=>{ if(e.target === document.getElementById('editModal')) closeEdit(); });
-    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && document.getElementById('editModal')?.classList.contains('show')) closeEdit(); });
 
-    document.getElementById('editSave')?.addEventListener('click', async ()=>{
-      if(!editId) return;
-      const fd = new FormData();
-      fd.append('action','updatePackage');
-      fd.append('id', editId);
-      fd.append('title', document.getElementById('editTitle')?.value.trim());
-      fd.append('arriving', document.getElementById('editArriving')?.value.trim());
-      fd.append('destination', document.getElementById('editDestination')?.value.trim());
-      fd.append('delivery_option', document.getElementById('editDelivery')?.value.trim());
-      fd.append('status', document.getElementById('editStatus')?.value.trim());
-      fd.append('description', document.getElementById('editDescription')?.value.trim());
-      if(editImage.files[0]) fd.append('newImage', editImage.files[0]);
-      const r = await fetch('', { method:'POST', body: fd });
-      const j = await r.json();
-      if(!j.ok){ alert(j.error || 'Save failed'); return; }
-      await loadList();
-      closeEdit();
+    // Event delegation so handlers work even if modal is added later
+    document.addEventListener('click', async (e)=>{
+      const target = e.target;
+      if (target.closest && target.closest('#editClose')) {
+        e.preventDefault();
+        closeEdit();
+        return;
+      }
+      // close when clicking on the overlay outside dialog
+      if (target === document.getElementById('editModal')) {
+        closeEdit();
+        return;
+      }
+      if (target.closest && target.closest('#editSave')) {
+        e.preventDefault();
+        if(!editId) { closeEdit(); return; }
+        const fd = new FormData();
+        fd.append('action','updatePackage');
+        fd.append('id', String(editId));
+        fd.append('title', ((document.getElementById('editTitle')?.value) || '').trim());
+        fd.append('arriving', ((document.getElementById('editArriving')?.value) || '').trim());
+        fd.append('destination', ((document.getElementById('editDestination')?.value) || '').trim());
+        fd.append('delivery_option', ((document.getElementById('editDelivery')?.value) || '').trim());
+        fd.append('status', ((document.getElementById('editStatus')?.value) || '').trim());
+        fd.append('description', ((document.getElementById('editDescription')?.value) || '').trim());
+        const editImageEl = document.getElementById('editImage');
+        if (editImageEl && editImageEl.files && editImageEl.files[0]) {
+          fd.append('newImage', editImageEl.files[0]);
+        }
+        const r = await fetch('', { method:'POST', body: fd });
+        const j = await r.json();
+        if(!j.ok){ alert(j.error || 'Save failed'); return; }
+        await loadList();
+        closeEdit();
+      }
     });
+
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && document.getElementById('editModal')?.classList.contains('show')) closeEdit(); });
 
     // Search / refresh
     $('#search').addEventListener('input', ()=>{
