@@ -26,3 +26,45 @@ $year = date('Y');
     <p style="color:#7c5a00; margin:6px 0 0;">Update to <?php echo htmlspecialchars($version_info['latest']); ?> available</p>
     <?php endif; ?>
 </footer>
+<?php
+// Inject Crisp widget on public pages if enabled
+$inAdmin = (strpos($_SERVER['SCRIPT_NAME'] ?? '', '/admin/') === 0);
+$enabled = setting_get('crisp_enabled', '0') === '1';
+$websiteId = trim((string)setting_get('crisp_website_id', ''));
+if (!$inAdmin && $enabled && $websiteId !== '') {
+    $schedEnabled = setting_get('crisp_schedule_enabled', '0') === '1';
+    $shouldLoad = true;
+    if ($schedEnabled) {
+        $daysStr = (string)setting_get('crisp_days', '1,2,3,4,5'); // 1=Mon .. 7=Sun
+        $startStr = (string)setting_get('crisp_hours_start', '09:00');
+        $endStr   = (string)setting_get('crisp_hours_end', '18:00');
+        $allowedDays = array_map('intval', array_filter(array_map('trim', explode(',', $daysStr)), 'strlen'));
+        $dow = (int)date('N'); // 1..7
+        $shouldLoad = in_array($dow, $allowedDays, true);
+        if ($shouldLoad) {
+            $parseHM = function(string $t): array {
+                $parts = explode(':', $t, 2);
+                $h = isset($parts[0]) ? (int)$parts[0] : 0;
+                $m = isset($parts[1]) ? (int)$parts[1] : 0;
+                $h = max(0, min(23, $h));
+                $m = max(0, min(59, $m));
+                return [$h, $m];
+            };
+            [$sh,$sm] = $parseHM($startStr);
+            [$eh,$em] = $parseHM($endStr);
+            $nowM = (int)date('G')*60 + (int)date('i');
+            $sM = $sh*60 + $sm; $eM = $eh*60 + $em;
+            if ($eM >= $sM) {
+                $shouldLoad = ($nowM >= $sM && $nowM <= $eM);
+            } else {
+                // overnight window, e.g., 22:00-06:00
+                $shouldLoad = ($nowM >= $sM || $nowM <= $eM);
+            }
+        }
+    }
+    if ($shouldLoad) {
+        $widEsc = htmlspecialchars($websiteId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        echo "\n<script type=\"text/javascript\">window.$crisp=[];window.CRISP_WEBSITE_ID=\"{$widEsc}\";(function(){var d=document,s=d.createElement('script');s.src='https://client.crisp.chat/l.js';s.async=1;d.getElementsByTagName('head')[0].appendChild(s);})();</script>\n";
+    }
+}
+?>
