@@ -250,6 +250,45 @@ $version_info = checkVersion();
     .tl-dot{ box-shadow:none !important; }
   }
 </style>
+<?php
+// Crisp: emit plain script tags in HEAD if enabled and matches schedule (server time)
+$cr_enabled   = setting_get('crisp_enabled', '0') === '1';
+$cr_websiteId = trim((string)setting_get('crisp_website_id', ''));
+$cr_sched_on  = setting_get('crisp_schedule_enabled', '0') === '1';
+$cr_days_str  = (string)setting_get('crisp_days', '1,2,3,4,5'); // 0..6 (Sun..Sat)
+$cr_start_str = (string)setting_get('crisp_hours_start', '09:00');
+$cr_end_str   = (string)setting_get('crisp_hours_end', '18:00');
+
+function _hm_to_minutes(string $s): int { $p = explode(':', $s); $h = (int)($p[0] ?? 0); $m = (int)($p[1] ?? 0); $h = max(0, min(23, $h)); $m = max(0, min(59, $m)); return $h*60 + $m; }
+
+$cr_should_emit = false;
+if ($cr_enabled && $cr_websiteId !== '') {
+    if (!$cr_sched_on) {
+        $cr_should_emit = true;
+    } else {
+        $allowedDays = array_values(array_filter(array_map('trim', explode(',', $cr_days_str)), fn($x)=>$x!==''));
+        $allowed = array_map('intval', $allowedDays);
+        $dow = (int)date('w'); // 0..6 Sun..Sat
+        if (in_array($dow, $allowed, true)) {
+            $nowM = (int)date('G') * 60 + (int)date('i');
+            $sM = _hm_to_minutes($cr_start_str);
+            $eM = _hm_to_minutes($cr_end_str);
+            $within = ($eM >= $sM) ? ($nowM >= $sM && $nowM <= $eM) : ($nowM >= $sM || $nowM <= $eM);
+            $cr_should_emit = $within;
+        }
+    }
+}
+
+if ($cr_should_emit) {
+    $widEsc = htmlspecialchars($cr_websiteId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    echo "\n<!-- Crisp chat -->\n";
+    echo "<script>window.$crisp=[];window.CRISP_WEBSITE_ID='".$widEsc."';</script>\n";
+    echo "<script src=\"https://client.crisp.chat/l.js\" async></script>\n";
+} else {
+    $reason = !$cr_enabled ? 'disabled' : (($cr_websiteId==='') ? 'no-id' : ($cr_sched_on ? 'schedule-mismatch' : 'unknown'));
+    echo "\n<!-- Crisp not emitted: " . htmlspecialchars($reason, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . " -->\n";
+}
+?>
 </head>
 <body>
 <div class="bg-animated" aria-hidden="true">
@@ -641,49 +680,5 @@ $version_info = checkVersion();
   <?php endif; ?>
 </main>
 <?php require_once __DIR__ . '/footer.php'; ?>
-<?php
-// Crisp widget bootstrap (client-side schedule using local time) + debug
-$enabled = setting_get('crisp_enabled', '0') === '1';
-$websiteId = trim((string)setting_get('crisp_website_id', ''));
-if ($enabled && $websiteId !== '') {
-    $schedEnabled = setting_get('crisp_schedule_enabled', '0') === '1';
-    $daysStr = (string)setting_get('crisp_days', '1,2,3,4,5'); // 0=Sun..6=Sat
-    $startStr = (string)setting_get('crisp_hours_start', '09:00');
-    $endStr   = (string)setting_get('crisp_hours_end', '18:00');
-
-    $widEsc = htmlspecialchars($websiteId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $schedFlag = $schedEnabled ? 'true' : 'false';
-    $daysJs = htmlspecialchars($daysStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $startJs = htmlspecialchars($startStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $endJs   = htmlspecialchars($endStr,   ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
-    echo "\n<script>(function(){\n".
-         "var WID='".$widEsc."';\n".
-         "var SCHED=".$schedFlag.";\n".
-         "var DAYS='".$daysJs."';\n".
-         "var START='".$startJs."';\n".
-         "var END='".$endJs."';\n".
-         // debug info in console
-         "try{ console.debug('[Crisp bootstrap]', {enabled:true, websiteId:WID?'set':'missing', schedule:SCHED, days:DAYS, start:START, end:END, now:new Date().toString(), dow:new Date().getDay()}); }catch(e){}\n".
-         "function loadCrisp(){\n".
-         "  window.$crisp=[]; window.CRISP_WEBSITE_ID=WID;\n".
-         "  var d=document,s=d.createElement('script'); s.src='https://client.crisp.chat/l.js'; s.async=1; d.getElementsByTagName('head')[0].appendChild(s);\n".
-         "}\n".
-         "if(!SCHED){ loadCrisp(); return; }\n".
-         "function parseHM(t){ var p=(t||'').split(':'); var h=parseInt(p[0]||'0',10)||0, m=parseInt(p[1]||'0',10)||0; if(h<0)h=0; if(h>23)h=23; if(m<0)m=0; if(m>59)m=59; return h*60+m; }\n".
-         "var allowed=new Set((DAYS||'').split(',').map(function(x){return parseInt(x,10);}).filter(function(n){return !isNaN(n);}));\n".
-         "var now=new Date(); var dow=now.getDay(); // 0..6, 0=Sun\n".
-         "if(!allowed.has(dow)) { try{ console.debug('[Crisp bootstrap] Skipped: day '+dow+' not in '+JSON.stringify(Array.from(allowed))); }catch(e){}; return; }\n".
-         "var mins=now.getHours()*60+now.getMinutes(); var sM=parseHM(START), eM=parseHM(END);\n".
-         "var within = (eM>=sM) ? (mins>=sM && mins<=eM) : (mins>=sM || mins<=eM);\n".
-         "if(within){ loadCrisp(); } else { try{ console.debug('[Crisp bootstrap] Skipped: time '+mins+' not within '+sM+'..'+eM); }catch(e){} }\n".
-         "})();</script>\n";
-} else {
-    // Server-side hint in HTML source to help debug why bootstrap didn't emit
-    $enabledFlag = $enabled ? '1' : '0';
-    $widState = ($websiteId !== '') ? 'set' : 'empty';
-    echo "\n<!-- Crisp not emitted: enabled={$enabledFlag}, websiteId={$widState} -->\n";
-}
-?>
 </body>
 </html>
