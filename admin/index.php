@@ -1327,7 +1327,7 @@ $version_info = $logged ? checkVersion() : null;
     editModal?.addEventListener('click', (e)=>{ if(e.target === editModal) closeEdit(); });
     window.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && editModal.classList.contains('show')) closeEdit(); });
 
-    document.getElementById('editSave').addEventListener('click', async ()=>{
+    document.getElementById('editSave')?.addEventListener('click', async ()=>{
       if(!editId) return;
       const fd = new FormData();
       fd.append('action','updatePackage');
