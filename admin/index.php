@@ -777,9 +777,6 @@ $version_info = $logged ? checkVersion() : null;
           <button type="button" id="newDestPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick destination</button>
           <div class="pick-hint">You can set start/end by address or pick on the map.</div>
         </div>
-        <div class="row">
-          <div class="input-wrap" style="flex:1 1 260px;"><i class="ri-truck-line"></i><input type="text" id="newDeliveryOption" placeholder="Delivery option (optional)" class="plain"></div>
-        </div>
         <div class="row" style="align-items:flex-start;">
           <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="newDescription" placeholder="Images and Description"></textarea></div>
           <div style="display:flex; align-items:center; gap:10px;">
@@ -848,6 +845,51 @@ $version_info = $logged ? checkVersion() : null;
           <button id="crispSaveBtn"><i class="ri-save-3-line"></i> Save chat settings</button>
         </div>
       </form>
+
+      <!-- Edit Package Modal -->
+      <div id="editModal" class="modal" aria-hidden="true">
+        <div class="modal-dialog card">
+          <div class="row" style="justify-content:space-between; align-items:center;">
+            <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-edit-2-line"></i> Edit package <span class="badge" id="editTracking" style="margin-left:8px;"></span></h3>
+            <button id="editClose" class="btn-ghost"><i class="ri-close-line"></i> Close</button>
+          </div>
+          <div class="grid" style="margin-top:12px;">
+            <div class="row">
+              <div class="input-wrap" style="flex:1 1 260px;"><i class="ri-edit-line"></i><input type="text" id="editTitle" placeholder="Title" class="plain" style="width:100%"></div>
+              <div class="input-wrap" style="flex:1 1 220px;"><i class="ri-truck-line"></i><input type="text" id="editDelivery" placeholder="Delivery option" class="plain" style="width:100%"></div>
+            </div>
+            <div class="row">
+              <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-send-plane-line"></i><input type="text" id="editArriving" placeholder="Arriving (start)" class="plain" style="width:100%"></div>
+              <button type="button" id="editArrPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick start</button>
+            </div>
+            <div class="row">
+              <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-flag-line"></i><input type="text" id="editDestination" placeholder="Destination (end)" class="plain" style="width:100%"></div>
+              <button type="button" id="editDestPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick destination</button>
+            </div>
+            <div class="row">
+              <div class="input-wrap"><i class="ri-information-line"></i>
+                <select id="editStatus" class="plain">
+                  <option value="">— status —</option>
+                  <option value="created">Created</option>
+                  <option value="in_transit">In transit</option>
+                  <option value="delivered">Delivered</option>
+                </select>
+              </div>
+            </div>
+            <div class="row" style="align-items:flex-start;">
+              <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="editDescription" placeholder="Description"></textarea></div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <img id="editThumb" alt="Preview" style="max-width:160px; display:none; border-radius:10px; border:1px solid var(--border); background:#fff;">
+                <input type="file" id="editImage" accept="image/*">
+              </div>
+            </div>
+            <div class="row">
+              <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /Edit Package Modal -->
     </div>
   </div>
 
@@ -1320,17 +1362,7 @@ $version_info = $logged ? checkVersion() : null;
     }
 
     // Edit panel logic (modal)
-    const editModal = document.getElementById('editModal');
-    const editClose = document.getElementById('editClose');
-    const editTitle = document.getElementById('editTitle');
-    const editArriving = document.getElementById('editArriving');
-    const editDestination = document.getElementById('editDestination');
-    const editDelivery = document.getElementById('editDelivery');
-    const editStatus = document.getElementById('editStatus');
-    const editDescription = document.getElementById('editDescription');
     const editImage = document.getElementById('editImage');
-    const editThumb = document.getElementById('editThumb');
-    const editTracking = document.getElementById('editTracking');
     let editId = null;
 
     window.openEdit = async function(id){
@@ -1338,35 +1370,65 @@ $version_info = $logged ? checkVersion() : null;
       if(!j.ok){ alert(j.error || 'Failed to load'); return; }
       const d = j.data;
       editId = d.id;
-      editTracking.textContent = d.tracking_number;
-      editTitle.value = d.title || '';
-      editArriving.value = d.arriving || '';
-      editDestination.value = d.destination || '';
-      editDelivery.value = d.delivery_option || '';
-      editStatus.value = (d.status || '').toLowerCase();
-      editDescription.value = d.description || '';
-      if(d.image_path){ editThumb.src = '../' + d.image_path; editThumb.style.display = 'block'; } else { editThumb.style.display = 'none'; }
-      editModal.classList.add('show');
+
+      // Query modal elements locally and guard against nulls
+      const getEl = (i)=>document.getElementById(i);
+      const mModal = getEl('editModal');
+      const mTracking = getEl('editTracking');
+      const mTitle = getEl('editTitle');
+      const mArr = getEl('editArriving');
+      const mDest = getEl('editDestination');
+      const mDelivery = getEl('editDelivery');
+      const mStatus = getEl('editStatus');
+      const mDesc = getEl('editDescription');
+      const mThumb = getEl('editThumb');
+
+      if (!mModal) {
+        console.warn('Edit modal root element not found.');
+        return;
+      }
+
+      if (mTracking) mTracking.textContent = d.tracking_number;
+      if (mTitle) mTitle.value = d.title || '';
+      if (mArr) mArr.value = d.arriving || '';
+      if (mDest) mDest.value = d.destination || '';
+      if (mDelivery) mDelivery.value = d.delivery_option || '';
+      if (mStatus) mStatus.value = (d.status || '').toLowerCase();
+      if (mDesc) mDesc.value = d.description || '';
+      if (mThumb) {
+        if(d.image_path){ mThumb.src = '../' + d.image_path; mThumb.style.display = 'block'; }
+        else { mThumb.style.display = 'none'; }
+      }
+
+      mModal.classList.add('show');
       drawRouteFor(d);
       initEditPickPreview(d); // add draggable start/dest markers and dashed line
     }
 
-    function closeEdit(){ editModal.classList.remove('show'); clearRoute(); clearPickArtifacts(); applyPickHighlight(false); editId=null; editImage.value=''; }
-    editClose?.addEventListener('click', closeEdit);
-    editModal?.addEventListener('click', (e)=>{ if(e.target === editModal) closeEdit(); });
-    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && editModal.classList.contains('show')) closeEdit(); });
+    function closeEdit(){ 
+      const editModal = document.getElementById('editModal');
+      if (editModal) editModal.classList.remove('show'); 
+      clearRoute(); 
+      clearPickArtifacts(); 
+      applyPickHighlight(false); 
+      editId=null; 
+      editImage.value=''; 
+    }
+    document.getElementById('editClose')?.addEventListener('click', closeEdit);
+    document.getElementById('editModal')?.addEventListener('click', (e)=>{ if(e.target === document.getElementById('editModal')) closeEdit(); });
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && document.getElementById('editModal')?.classList.contains('show')) closeEdit(); });
 
     document.getElementById('editSave')?.addEventListener('click', async ()=>{
       if(!editId) return;
       const fd = new FormData();
       fd.append('action','updatePackage');
       fd.append('id', editId);
-      fd.append('title', editTitle.value.trim());
-      fd.append('arriving', editArriving.value.trim());
-      fd.append('destination', editDestination.value.trim());
-      fd.append('delivery_option', editDelivery.value.trim());
-      fd.append('status', editStatus.value.trim());
-      fd.append('description', editDescription.value.trim());
+      fd.append('title', document.getElementById('editTitle')?.value.trim());
+      fd.append('arriving', document.getElementById('editArriving')?.value.trim());
+      fd.append('destination', document.getElementById('editDestination')?.value.trim());
+      fd.append('delivery_option', document.getElementById('editDelivery')?.value.trim());
+      fd.append('status', document.getElementById('editStatus')?.value.trim());
+      fd.append('description', document.getElementById('editDescription')?.value.trim());
       if(editImage.files[0]) fd.append('newImage', editImage.files[0]);
       const r = await fetch('', { method:'POST', body: fd });
       const j = await r.json();
