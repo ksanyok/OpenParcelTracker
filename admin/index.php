@@ -221,14 +221,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($action === 'addPackage') {
         $tracking = trim((string)($_POST['tracking'] ?? ''));
         $title    = trim((string)($_POST['title'] ?? ''));
-        $lat      = isset($_POST['lat']) ? (float)$_POST['lat'] : null;
-        $lng      = isset($_POST['lng']) ? (float)$_POST['lng'] : null;
+        // Robust parsing for lat/lng: ignore empty/"null"
+        $lat = (isset($_POST['lat']) && $_POST['lat'] !== '' && strtolower((string)$_POST['lat']) !== 'null' && is_numeric($_POST['lat'])) ? (float)$_POST['lat'] : null;
+        $lng = (isset($_POST['lng']) && $_POST['lng'] !== '' && strtolower((string)$_POST['lng']) !== 'null' && is_numeric($_POST['lng'])) ? (float)$_POST['lng'] : null;
         $address  = trim((string)($_POST['address'] ?? ''));
         $arriving = trim((string)($_POST['arriving'] ?? ''));
         $destination = trim((string)($_POST['destination'] ?? ''));
         $deliveryOption = trim((string)($_POST['delivery_option'] ?? ''));
         $description = trim((string)($_POST['description'] ?? ''));
         $imagePath = '';
+
+        // Normalize accidental (0,0) coming from bad client values to "unknown"
+        if ($lat === 0.0 && $lng === 0.0) { $lat = null; $lng = null; }
 
         // Handle Image Upload (validated)
         if (!empty($_FILES['newImage']['name'])) {
@@ -241,6 +245,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             echo json_encode(['ok'=>false,'error'=>'Tracking number required']); exit;
         }
 
+        // If no explicit coordinates provided, try to geocode initial point from address or arriving (start)
+        if ($lat === null || $lng === null) {
+            $geoQ = $address !== '' ? $address : ($arriving !== '' ? $arriving : '');
+            if ($geoQ !== '') {
+                $url = 'https://nominatim.openstreetmap.org/search?format=json&q=' . urlencode($geoQ);
+                $ctx = stream_context_create(['http' => ['header' => "User-Agent: OpenParcelTracker\r\nAccept: application/json\r\n", 'timeout' => 6]]);
+                $resp = @file_get_contents($url, false, $ctx);
+                if ($resp) {
+                    $arr = json_decode($resp, true);
+                    if (is_array($arr) && count($arr) > 0) {
+                        $lat = (float)$arr[0]['lat'];
+                        $lng = (float)$arr[0]['lon'];
+                        if ($address === '' && $arriving !== '') {
+                            // prefer using human-entered arriving as last_address if address field was empty
+                            $address = $arriving;
+                        } elseif ($address === '') {
+                            // fallback to display_name from geocoder
+                            $address = (string)($arr[0]['display_name'] ?? '');
+                        }
+                    }
+                }
+            }
+        }
+
         $now = date('Y-m-d H:i:s');
         $pdo->beginTransaction();
         try {
@@ -250,6 +278,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             $pid = (int)$pdo->lastInsertId();
 
+            // Add initial history entry with the current coordinates if available
             if ($lat !== null && $lng !== null) {
                 $stm2 = $pdo->prepare("INSERT INTO locations (package_id, lat, lng, address, note, created_at)
                                        VALUES (?,?,?,?,?, ?)");
@@ -1385,9 +1414,12 @@ $version_info = $logged ? checkVersion() : null;
       formData.append('action', 'addPackage');
       formData.append('tracking', tracking);
       formData.append('title', title);
-      formData.append('lat', lat);
-      formData.append('lng', lng);
-      formData.append('address', address);
+      // Append coords only if resolved to avoid sending "null" which becomes 0 on PHP side
+      if (lat != null && lng != null) {
+        formData.append('lat', String(lat));
+        formData.append('lng', String(lng));
+      }
+      if (address) formData.append('address', address);
       formData.append('arriving', arriving);
       formData.append('destination', destination);
       formData.append('delivery_option', deliveryOption);
