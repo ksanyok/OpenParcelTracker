@@ -410,6 +410,26 @@ if ($cr_should_emit) {
           $locale = get_locale();
           $utcStr = utc_offset_str();
 
+          // Precompute travel time since previous point (global, not reset per day)
+          $durById = [];
+          for ($i = 0; $i < count($history) - 1; $i++) {
+              $curTs = strtotime((string)$history[$i]['created_at']);
+              $prevTs = strtotime((string)$history[$i+1]['created_at']);
+              if ($curTs && $prevTs && $curTs >= $prevTs) {
+                  $durById[(int)$history[$i]['id']] = $curTs - $prevTs; // seconds
+              }
+          }
+          $formatDur = function(int $sec): string {
+              $d = intdiv($sec, 86400); $sec %= 86400;
+              $h = intdiv($sec, 3600);  $sec %= 3600;
+              $m = intdiv($sec, 60);
+              $parts = [];
+              if ($d>0) $parts[] = $d . 'd';
+              if ($h>0) $parts[] = $h . 'h';
+              if ($m>0 || !$parts) $parts[] = $m . 'm';
+              return implode(' ', $parts);
+          };
+
           $classify = function(string $note): array {
             $n = mb_strtolower($note);
             $cls = 'intransit'; $icon = 'ri-alert-line'; // triangle-ish for in-transit
@@ -428,57 +448,30 @@ if ($cr_should_emit) {
           <details class="tl-day" open>
             <summary class="tl-day-header"><?=$label?> <span class="muted utc-offset" style="font-weight:500;">(<?=$utcStr?>)</span></summary>
             <div class="tl-rows">
-              <?php
-                // Merge sequential duplicates (same note+address)
-                $merged = [];
-                foreach ($rows as $r) {
-                    $key = trim((string)($r['note'] ?? '')) . '|' . trim((string)($r['address'] ?? ''));
-                    $tsR = strtotime((string)$r['created_at']);
-                    $timeStr = $tsR ? format_time_local($tsR, $locale) : '';
-                    if ($merged && $merged[count($merged)-1]['key'] === $key) {
-                        $merged[count($merged)-1]['count']++;
-                        $merged[count($merged)-1]['times'][] = $timeStr;
-                        // override lat/lng to most recent
-                        $merged[count($merged)-1]['lat'] = (float)$r['lat'];
-                        $merged[count($merged)-1]['lng'] = (float)$r['lng'];
-                    } else {
-                        $merged[] = [
-                            'key'=>$key,
-                            'row'=>$r,
-                            'time'=>$timeStr,
-                            'times'=>[$timeStr],
-                            'count'=>1,
-                            'lat'=>(float)$r['lat'],
-                            'lng'=>(float)$r['lng'],
-                        ];
-                    }
-                }
-                foreach ($merged as $m):
-                  $r = $m['row'];
-                  $time = $m['time'];
-                  $times = $m['times'];
-                  $count = $m['count'];
+              <?php foreach ($rows as $r):
+                  $tsR = strtotime((string)$r['created_at']);
+                  $timeStr = $tsR ? format_time_local($tsR, $locale) : '';
                   $note = (string)($r['note'] ?? '');
                   $addr = (string)($r['address'] ?? '');
                   [$cls, $icon] = $classify($note);
-                  $lat = $m['lat']; $lng = $m['lng'];
+                  $lat = (float)$r['lat']; $lng = (float)$r['lng'];
                   $mapsUrl = ($lat && $lng) ? ('https://www.google.com/maps?q=' . rawurlencode($lat . ',' . $lng)) : '';
                   $serviceArea = service_area_from_address($addr);
+                  $delta = $durById[(int)$r['id']] ?? null;
               ?>
               <div class="tl-row <?=$cls?>">
-                <div class="tl-time"><?=h($time)?></div>
+                <div class="tl-time"><?=h($timeStr)?></div>
                 <div class="tl-line"><span class="tl-dot"><i class="<?=$icon?>"></i></span></div>
                 <div class="tl-content">
                   <div class="tl-title <?=$cls==='delivered'?'delivered':'intransit'?>">
                     <?=h($note ?: 'Status update')?>
-                    <?php if ($count>1): ?><span class="tl-count">×<?=$count?></span><?php endif; ?>
                   </div>
                   <?php if ($addr): ?><div class="tl-sub"><?php echo h($upper($addr)); ?></div><?php endif; ?>
                   <?php if ($serviceArea): ?><div class="tl-meta">Service area: <?=h($serviceArea)?></div><?php endif; ?>
                   <div class="tl-meta">
                     <a href="?tracking=<?=h($pkg['tracking_number'])?>">1 Unit: <?=h($pkg['tracking_number'])?></a>
                     <?php if ($mapsUrl): ?> · <a href="<?=$mapsUrl?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
-                    <?php if ($count>1 && count($times)>1): ?> · Times: <?=h(implode(', ', array_unique($times)))?><?php endif; ?>
+                    <?php if ($delta): ?> · Travel since last point: <?=h($formatDur((int)$delta))?><?php endif; ?>
                   </div>
                 </div>
               </div>

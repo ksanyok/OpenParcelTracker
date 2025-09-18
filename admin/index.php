@@ -845,51 +845,6 @@ $version_info = $logged ? checkVersion() : null;
           <button id="crispSaveBtn"><i class="ri-save-3-line"></i> Save chat settings</button>
         </div>
       </form>
-
-      <!-- Edit Package Modal -->
-      <div id="editModal" class="modal" aria-hidden="true">
-        <div class="modal-dialog card">
-          <div class="row" style="justify-content:space-between; align-items:center;">
-            <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-edit-2-line"></i> Edit package <span class="badge" id="editTracking" style="margin-left:8px;"></span></h3>
-            <button id="editClose" class="btn-ghost"><i class="ri-close-line"></i> Close</button>
-          </div>
-          <div class="grid" style="margin-top:12px;">
-            <div class="row">
-              <div class="input-wrap" style="flex:1 1 260px;"><i class="ri-edit-line"></i><input type="text" id="editTitle" placeholder="Title" class="plain" style="width:100%"></div>
-              <div class="input-wrap" style="flex:1 1 220px;"><i class="ri-truck-line"></i><input type="text" id="editDelivery" placeholder="Delivery option" class="plain" style="width:100%"></div>
-            </div>
-            <div class="row">
-              <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-send-plane-line"></i><input type="text" id="editArriving" placeholder="Arriving (start)" class="plain" style="width:100%"></div>
-              <button type="button" id="editArrPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick start</button>
-            </div>
-            <div class="row">
-              <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-flag-line"></i><input type="text" id="editDestination" placeholder="Destination (end)" class="plain" style="width:100%"></div>
-              <button type="button" id="editDestPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick destination</button>
-            </div>
-            <div class="row">
-              <div class="input-wrap"><i class="ri-information-line"></i>
-                <select id="editStatus" class="plain">
-                  <option value="">— status —</option>
-                  <option value="created">Created</option>
-                  <option value="in_transit">In transit</option>
-                  <option value="delivered">Delivered</option>
-                </select>
-              </div>
-            </div>
-            <div class="row" style="align-items:flex-start;">
-              <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="editDescription" placeholder="Description"></textarea></div>
-              <div style="display:flex; flex-direction:column; gap:8px;">
-                <img id="editThumb" alt="Preview" style="max-width:160px; display:none; border-radius:10px; border:1px solid var(--border); background:#fff;">
-                <input type="file" id="editImage" accept="image/*">
-              </div>
-            </div>
-            <div class="row">
-              <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <!-- /Edit Package Modal -->
     </div>
   </div>
 
@@ -1222,12 +1177,13 @@ $version_info = $logged ? checkVersion() : null;
           m = L.marker([r.last_lat, r.last_lng], { draggable: true }).addTo(map);
           m.on('dragend', async (ev)=>{
             const ll = ev.target.getLatLng();
-            const ok = await movePackage(r.id, ll.lat, ll.lng, '');
+            let addrAuto = '';
+            try { addrAuto = await reverseGeocode(ll.lat, ll.lng); } catch(e) { addrAuto = ''; }
+            const ok = await movePackage(r.id, ll.lat, ll.lng, addrAuto);
             if (!ok) {
-              // revert on fail
               ev.target.setLatLng([r.last_lat, r.last_lng]);
             } else {
-              r.last_lat = ll.lat; r.last_lng = ll.lng; r.last_address = r.last_address || null;
+              r.last_lat = ll.lat; r.last_lng = ll.lng; r.last_address = addrAuto || r.last_address || null;
               m.bindPopup(markerPopupHtml(r));
               await loadList();
             }
@@ -1465,11 +1421,7 @@ $version_info = $logged ? checkVersion() : null;
           const url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(addr);
           const r = await fetch(url, { headers:{'Accept':'application/json'} });
           const arr = await r.json();
-          if (arr.length) {
-            lat = parseFloat(arr[0].lat);
-            lng = parseFloat(arr[0].lon);
-            address = addr;
-          }
+          if (arr.length) { lat = parseFloat(arr[0].lat); lng = parseFloat(arr[0].lon); address = addr; }
         } catch(e){ /* ignore geocode error */ }
       }
 
@@ -1552,19 +1504,51 @@ $version_info = $logged ? checkVersion() : null;
   </script>
 <?php endif; ?>
 </main>
+
+<!-- Edit Package Modal moved next to body root for correct overlay behavior across browsers (e.g., Safari) -->
+<div id="editModal" class="modal" aria-hidden="true">
+  <div class="modal-dialog card">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-edit-2-line"></i> Edit package <span class="badge" id="editTracking" style="margin-left:8px;"></span></h3>
+      <button id="editClose" class="btn-ghost"><i class="ri-close-line"></i> Close</button>
+    </div>
+    <div class="grid" style="margin-top:12px;">
+      <div class="row">
+        <div class="input-wrap" style="flex:1 1 260px;"><i class="ri-edit-line"></i><input type="text" id="editTitle" placeholder="Title" class="plain" style="width:100%"></div>
+        <div class="input-wrap" style="flex:1 1 220px;"><i class="ri-truck-line"></i><input type="text" id="editDelivery" placeholder="Delivery option" class="plain" style="width:100%"></div>
+      </div>
+      <div class="row">
+        <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-send-plane-line"></i><input type="text" id="editArriving" placeholder="Arriving (start)" class="plain" style="width:100%"></div>
+        <button type="button" id="editArrPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick start</button>
+      </div>
+      <div class="row">
+        <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-flag-line"></i><input type="text" id="editDestination" placeholder="Destination (end)" class="plain" style="width:100%"></div>
+        <button type="button" id="editDestPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick destination</button>
+      </div>
+      <div class="row">
+        <div class="input-wrap"><i class="ri-information-line"></i>
+          <select id="editStatus" class="plain">
+            <option value="">— status —</option>
+            <option value="created">Created</option>
+            <option value="in_transit">In transit</option>
+            <option value="delivered">Delivered</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="align-items:flex-start;">
+        <div class="textarea-wrap" style="flex:1 1 320px;"><textarea id="editDescription" placeholder="Description"></textarea></div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <img id="editThumb" alt="Preview" style="max-width:160px; display:none; border-radius:10px; border:1px solid var(--border); background:#fff;">
+          <input type="file" id="editImage" accept="image/*">
+        </div>
+      </div>
+      <div class="row">
+        <button id="editSave"><i class="ri-save-3-line"></i> Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <?php require_once __DIR__ . '/../footer.php'; ?>
-<script>
-    // Update Footer
-    document.getElementById('updateBtnFooter')?.addEventListener('click', async ()=>{
-      if (!confirm('Are you sure you want to update from the repository? This may overwrite local changes.')) return;
-      const j = await post('update');
-      if (j.ok) {
-        alert('Updated successfully!');
-        location.reload();
-      } else {
-        alert('Update failed: ' + j.error);
-      }
-    });
-</script>
 </body>
 </html>

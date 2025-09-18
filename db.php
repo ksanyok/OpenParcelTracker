@@ -30,7 +30,7 @@ if (file_exists(__DIR__ . '/.env')) {
 
 const DB_DIR  = __DIR__ . '/data';
 const DB_FILE = DB_DIR . '/tracker.sqlite';
-const VERSION = '1.9.22';
+const VERSION = '1.9.24';
 
 /**
  * Get the current version of the application.
@@ -84,6 +84,11 @@ function pdo(): PDO {
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
+        // Enable useful SQLite PRAGMAs
+        try { $pdo->exec('PRAGMA foreign_keys = ON'); } catch (Throwable $e) {}
+        try { $pdo->exec('PRAGMA busy_timeout = 5000'); } catch (Throwable $e) {}
+        // try WAL for better concurrency (best-effort)
+        try { $pdo->exec('PRAGMA journal_mode = WAL'); } catch (Throwable $e) {}
         ensure_schema($pdo, 'sqlite');
     }
 
@@ -151,6 +156,9 @@ function ensure_schema(PDO $pdo, string $driver='sqlite'): void {
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+
+        // Best-effort index on packages.updated_at (ignore if already exists)
+        try { $pdo->exec("CREATE INDEX idx_packages_updated_at ON packages (updated_at)"); } catch (Throwable $e) {}
     } else {
         // sqlite
         $pdo->exec("
@@ -204,6 +212,11 @@ function ensure_schema(PDO $pdo, string $driver='sqlite'): void {
                 updated_at TEXT NOT NULL
             )
         ");
+
+        // Helpful indexes for performance (idempotent)
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_locations_package_id ON locations(package_id)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_packages_updated_at ON packages(updated_at)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_locations_created_at ON locations(created_at)");
     }
 
     // bootstrap default admin if empty
