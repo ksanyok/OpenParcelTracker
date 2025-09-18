@@ -642,7 +642,7 @@ $version_info = checkVersion();
 </main>
 <?php require_once __DIR__ . '/footer.php'; ?>
 <?php
-// Crisp widget bootstrap (client-side schedule using local time)
+// Crisp widget bootstrap (client-side schedule using local time) + debug
 $enabled = setting_get('crisp_enabled', '0') === '1';
 $websiteId = trim((string)setting_get('crisp_website_id', ''));
 if ($enabled && $websiteId !== '') {
@@ -663,6 +663,8 @@ if ($enabled && $websiteId !== '') {
          "var DAYS='".$daysJs."';\n".
          "var START='".$startJs."';\n".
          "var END='".$endJs."';\n".
+         // debug info in console
+         "try{ console.debug('[Crisp bootstrap]', {enabled:true, websiteId:WID?'set':'missing', schedule:SCHED, days:DAYS, start:START, end:END, now:new Date().toString(), dow:new Date().getDay()}); }catch(e){}\n".
          "function loadCrisp(){\n".
          "  window.$crisp=[]; window.CRISP_WEBSITE_ID=WID;\n".
          "  var d=document,s=d.createElement('script'); s.src='https://client.crisp.chat/l.js'; s.async=1; d.getElementsByTagName('head')[0].appendChild(s);\n".
@@ -671,11 +673,16 @@ if ($enabled && $websiteId !== '') {
          "function parseHM(t){ var p=(t||'').split(':'); var h=parseInt(p[0]||'0',10)||0, m=parseInt(p[1]||'0',10)||0; if(h<0)h=0; if(h>23)h=23; if(m<0)m=0; if(m>59)m=59; return h*60+m; }\n".
          "var allowed=new Set((DAYS||'').split(',').map(function(x){return parseInt(x,10);}).filter(function(n){return !isNaN(n);}));\n".
          "var now=new Date(); var dow=now.getDay(); // 0..6, 0=Sun\n".
-         "if(!allowed.has(dow)) return;\n".
+         "if(!allowed.has(dow)) { try{ console.debug('[Crisp bootstrap] Skipped: day '+dow+' not in '+JSON.stringify(Array.from(allowed))); }catch(e){}; return; }\n".
          "var mins=now.getHours()*60+now.getMinutes(); var sM=parseHM(START), eM=parseHM(END);\n".
          "var within = (eM>=sM) ? (mins>=sM && mins<=eM) : (mins>=sM || mins<=eM);\n".
-         "if(within){ loadCrisp(); }\n".
+         "if(within){ loadCrisp(); } else { try{ console.debug('[Crisp bootstrap] Skipped: time '+mins+' not within '+sM+'..'+eM); }catch(e){} }\n".
          "})();</script>\n";
+} else {
+    // Server-side hint in HTML source to help debug why bootstrap didn't emit
+    $enabledFlag = $enabled ? '1' : '0';
+    $widState = ($websiteId !== '') ? 'set' : 'empty';
+    echo "\n<!-- Crisp not emitted: enabled={$enabledFlag}, websiteId={$widState} -->\n";
 }
 ?>
 </body>
