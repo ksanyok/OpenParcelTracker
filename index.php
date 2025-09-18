@@ -282,7 +282,7 @@ if ($cr_enabled && $cr_websiteId !== '') {
 if ($cr_should_emit) {
     $widEsc = htmlspecialchars($cr_websiteId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     echo "\n<!-- Crisp chat -->\n";
-    echo "<script>window.$crisp=[];window.CRISP_WEBSITE_ID='".$widEsc."';</script>\n";
+    echo "<script>window.\\$crisp=[];window.CRISP_WEBSITE_ID='".$widEsc."';</script>\n";
     echo "<script src=\"https://client.crisp.chat/l.js\" async></script>\n";
 } else {
     $reason = !$cr_enabled ? 'disabled' : (($cr_websiteId==='') ? 'no-id' : ($cr_sched_on ? 'schedule-mismatch' : 'unknown'));
