@@ -121,6 +121,9 @@ $version_info = checkVersion();
 <title>Package Tracker</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#D40511">
+<link rel="icon" type="image/png" href="dhl.png">
+<link rel="apple-touch-icon" href="dhl.png">
+<link rel="shortcut icon" href="dhl.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 <!-- Icons -->
 <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
