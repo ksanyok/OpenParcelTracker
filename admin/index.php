@@ -311,9 +311,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stm = $pdo->prepare("UPDATE packages SET last_lat=?, last_lng=?, last_address=?, updated_at=? WHERE id=?");
             $stm->execute([$lat, $lng, $address ?: null, $now, $id]);
 
-            $stm2 = $pdo->prepare("INSERT INTO locations (package_id, lat, lng, address, note, created_at)
-                                   VALUES (?,?,?,?,?, ?)");
-            $stm2->execute([$id, $lat, $lng, $address ?: null, $note ?: 'Moved', $now]);
+            // Use new enhanced event creation
+            $event_data = [
+                'package_id' => $id,
+                'lat' => $lat,
+                'lng' => $lng,
+                'address' => $address ?: null,
+                'note' => $note ?: 'Moved',
+                'title' => 'Package moved',
+                'source' => 'map',
+                'is_manual' => 1,
+                'created_by' => 'admin'
+            ];
+            
+            create_movement_event($event_data);
 
             // Auto status update: in_transit or delivered if near destination
             $newStatus = 'in_transit';
@@ -352,6 +363,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } catch (Throwable $e) {
             $pdo->rollBack();
             echo json_encode(['ok'=>false,'error'=>'DB error']);
+        }
+        exit;
+    }
+
+    if ($action === 'addEvent') {
+        require_login_json();
+        
+        $package_id = (int)($_POST['package_id'] ?? 0);
+        $lat = isset($_POST['lat']) ? (float)$_POST['lat'] : null;
+        $lng = isset($_POST['lng']) ? (float)$_POST['lng'] : null;
+        $address = trim((string)($_POST['address'] ?? ''));
+        $title = trim((string)($_POST['title'] ?? ''));
+        $message = trim((string)($_POST['message'] ?? ''));
+        $from_city = trim((string)($_POST['from_city'] ?? ''));
+        $from_country = trim((string)($_POST['from_country'] ?? ''));
+        $to_city = trim((string)($_POST['to_city'] ?? ''));
+        $to_country = trim((string)($_POST['to_country'] ?? ''));
+        $facility = trim((string)($_POST['facility'] ?? ''));
+        $event_code = trim((string)($_POST['event_code'] ?? ''));
+        $carrier = trim((string)($_POST['carrier'] ?? ''));
+        
+        if ($package_id <= 0 || $lat === null || $lng === null) {
+            echo json_encode(['ok'=>false,'error'=>'Invalid params']); exit;
+        }
+        
+        $event_data = [
+            'package_id' => $package_id,
+            'lat' => $lat,
+            'lng' => $lng,
+            'address' => $address ?: null,
+            'title' => $title ?: 'Status update',
+            'message' => $message ?: null,
+            'from_city' => $from_city ?: null,
+            'from_country_code' => $from_country ?: null,
+            'to_city' => $to_city ?: null,
+            'to_country_code' => $to_country ?: null,
+            'facility_name' => $facility ?: null,
+            'event_code' => $event_code ?: null,
+            'carrier' => $carrier ?: null,
+            'source' => 'manual',
+            'is_manual' => 1,
+            'created_by' => 'admin'
+        ];
+        
+        if (create_movement_event($event_data)) {
+            // Update package last position
+            $now = date('Y-m-d H:i:s');
+            $stm = $pdo->prepare("UPDATE packages SET last_lat=?, last_lng=?, last_address=?, updated_at=? WHERE id=?");
+            $stm->execute([$lat, $lng, $address ?: null, $now, $package_id]);
+            
+            echo json_encode(['ok'=>true]);
+        } else {
+            echo json_encode(['ok'=>false,'error'=>'Failed to create event']);
         }
         exit;
     }
