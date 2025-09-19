@@ -264,6 +264,17 @@ $version_info = checkVersion();
   .status-created{background:linear-gradient(180deg, #fff, #fff3c4); color:#7c5a00; border-color:#ffd34d}
   .status-in_transit{background:linear-gradient(180deg, #ffe0e2, #ffd3d6); color:#8b1119; border-color:#f2a3aa}
   .status-delivered{background:linear-gradient(180deg, #e7f7eb, #d9f1e0); color:#176b3a; border-color:#a7e0b9}
+  .status-out_for_delivery{background:linear-gradient(180deg,#fff6d6,#ffe8a6); color:#7a5a00; border-color:#ffd34d}
+  .status-arrived{background:linear-gradient(180deg,#eef2ff,#e0e7ff); color:#1e3a8a; border-color:#c7d2fe}
+  .status-departed{background:linear-gradient(180deg,#ffe1e3,#ffd1d6); color:#9f1239; border-color:#f5a3b0}
+  .status-customs{background:linear-gradient(180deg,#fff0e0,#ffe2cc); color:#b45309; border-color:#f9c98b}
+  .status-exception{background:linear-gradient(180deg,#fff1f2,#ffe4e6); color:#9f1239; border-color:#fecdd3}
+  .status-on_hold{background:linear-gradient(180deg,#f1f5f9,#e2e8f0); color:#334155; border-color:#cbd5e1}
+  .status-returned{background:linear-gradient(180deg,#f5f3ff,#ede9fe); color:#6d28d9; border-color:#ddd6fe}
+  .status-canceled{background:linear-gradient(180deg,#f8fafc,#e2e8f0); color:#334155; border-color:#cbd5e1}
+  .status-ready_for_pickup{background:linear-gradient(180deg,#fff6d6,#ffe8a6); color:#7a5a00; border-color:#ffd34d}
+  .status-delayed{background:linear-gradient(180deg,#fff0e0,#ffe2cc); color:#b45309; border-color:#f9c98b}
+  .status-active{background:linear-gradient(180deg,#e0f2fe,#bae6fd); color:#075985; border-color:#7dd3fc}
   .progress-stops{ position:absolute; inset:0; pointer-events:none; }
   .progress-stop{ position:absolute; top:50%; transform:translate(-50%,-50%); width:10px; height:10px; border-radius:50%; background:#fff; border:2px solid var(--brand-red); box-shadow:0 0 0 2px rgba(255,255,255,0.7) }
   .progress-stop.past{ background: var(--brand-red); border-color: #b1040e; }
@@ -592,30 +603,42 @@ if ($cr_should_emit) {
           // Map status labels (package/global) to title/class/icon
           $mapPkgStatus = function(string $s): array {
             $n = preg_replace('/\s+/', '_', mb_strtolower(trim($s)));
-            // synonyms
+            // synonyms & extended statuses
             if (str_starts_with($n, 'deliver') || str_contains($n, 'достав')) return ['Delivered','delivered','ri-check-line'];
-            if ($n === 'active' || str_contains($n, 'актив')) return ['Active','active','ri-bolt-line'];
-            if ($n === 'in_transit' || str_contains($n, 'transit')) return ['In transit','intransit','ri-navigation-line'];
-            if ($n === 'out_for_delivery' || str_contains($n, 'courier')) return ['Out for delivery','courier','ri-truck-line'];
-            if ($n === 'ready_for_pickup') return ['Ready for pickup','arrived','ri-inbox-unarchive-line'];
-            if ($n === 'on_hold' || str_contains($n, 'hold')) return ['On hold','customs','ri-pause-circle-line'];
-            if ($n === 'exception' || str_contains($n, 'exception') || str_contains($n, 'issue')) return ['Exception','intransit','ri-error-warning-line'];
-            if ($n === 'canceled' || $n === 'cancelled') return ['Canceled','intransit','ri-close-circle-line'];
-            if ($n === 'returned' || str_contains($n, 'return')) return ['Returned','intransit','ri-reply-line'];
-            if ($n === 'created') return ['Created','created','ri-add-line'];
+            if ($n === 'active' || str_contains($n, 'актив')) return ['Active','intransit','ri-bolt-line'];
+            if ($n === 'in_transit' || str_contains($n, 'transit') || str_contains($n,'в пути') || str_contains($n,'в_пути')) return ['In transit','intransit','ri-navigation-line'];
+            if ($n === 'out_for_delivery' || str_contains($n, 'courier') || str_contains($n, 'курьер') || str_contains($n,'кур_')) return ['Out for delivery','courier','ri-truck-line'];
+            if ($n === 'ready_for_pickup' || str_contains($n,'pickup') || str_contains($n,'самовывоз') || str_contains($n,'забор')) return ['Ready for pickup','arrived','ri-inbox-unarchive-line'];
+            if ($n === 'on_hold' || str_contains($n, 'hold') || str_contains($n,'удерж') || str_contains($n,'на_ожид')) return ['On hold','customs','ri-pause-circle-line'];
+            if ($n === 'exception' || str_contains($n, 'exception') || str_contains($n, 'issue') || str_contains($n,'исключ') || str_contains($n,'проблем')) return ['Exception','intransit','ri-error-warning-line'];
+            if ($n === 'canceled' || $n === 'cancelled' || str_contains($n,'отмен')) return ['Canceled','intransit','ri-close-circle-line'];
+            if ($n === 'returned' || str_contains($n, 'return') || str_contains($n,'возврат')) return ['Returned','intransit','ri-reply-line'];
+            if ($n === 'attempted_delivery' || str_contains($n,'attempt') || str_contains($n,'попыт')) return ['Delivery attempt','courier','ri-run-line'];
+            if ($n === 'delayed' || str_contains($n,'delay') || str_contains($n,'задерж')) return ['Delayed','intransit','ri-time-line'];
+            if ($n === 'arrived' || str_contains($n,'arriv') || str_contains($n,'приб')) return ['Arrived at facility','arrived','ri-inbox-archive-line'];
+            if ($n === 'departed' || str_contains($n,'depart') || str_contains($n,'left') || str_contains($n,'отпр') || str_contains($n,'відправ')) return ['Departed facility','departed','ri-flight-takeoff-line'];
+            if ($n === 'customs' || str_contains($n,'custom') || str_contains($n,'тамож')) return ['Customs processing','customs','ri-shield-check-line'];
+            if ($n === 'label_created' || str_contains($n,'label') || str_contains($n,'наклад') || str_contains($n,'информ') || str_contains($n,'info_received')) return ['Label created','created','ri-add-line'];
+            if ($n === 'created' || str_contains($n,'создан') || str_contains($n,'створ')) return ['Created','created','ri-add-line'];
             return [ucfirst($s), 'intransit', 'ri-information-line'];
           };
 
           $statusize = function(string $note, string $addr, float $distKm, int $durSec): array {
             $n = trim(mb_strtolower($note));
-            // Predefined mappings
+            // Predefined mappings (extended)
             if ($n !== ''){
-              if (str_contains($n, 'deliver')) return ['Delivered','delivered','ri-check-line'];
-              if (str_contains($n, 'courier') || str_contains($n, 'кур')) return ['Handed to courier','courier','ri-truck-line'];
-              if (str_contains($n, 'arriv') || str_contains($n, 'приб')) return ['Arrived at facility','arrived','ri-inbox-archive-line'];
-              if (str_contains($n, 'depart') || str_contains($n, 'left') || str_contains($n, 'відправ') || str_contains($n, 'отпр')) return ['Departed facility','departed','ri-flight-takeoff-line'];
-              if (str_contains($n, 'custom')) return ['Customs cleared','customs','ri-shield-check-line'];
-              if (str_contains($n, 'created') || str_contains($n, 'создан') || str_contains($n, 'створ')) return ['Created','created','ri-add-line'];
+              if (str_contains($n, 'deliver') && (str_contains($n,'success') || str_contains($n,'complete') || str_contains($n,'достав'))) return ['Delivered','delivered','ri-check-line'];
+              if (str_contains($n, 'out for delivery') || str_contains($n,'courier') || str_contains($n,'кур')) return ['Out for delivery','courier','ri-truck-line'];
+              if (str_contains($n, 'attempt') || str_contains($n,'попыт')) return ['Delivery attempt','courier','ri-run-line'];
+              if (str_contains($n, 'arriv') || str_contains($n,'приб')) return ['Arrived at facility','arrived','ri-inbox-archive-line'];
+              if (str_contains($n, 'depart') || str_contains($n,'left') || str_contains($n,'відправ') || str_contains($n,'отпр')) return ['Departed facility','departed','ri-flight-takeoff-line'];
+              if (str_contains($n, 'custom') || str_contains($n,'тамож')) return ['Customs processing','customs','ri-shield-check-line'];
+              if (str_contains($n, 'delay') || str_contains($n,'задерж')) return ['Delayed','intransit','ri-time-line'];
+              if (str_contains($n, 'return') || str_contains($n,'возврат')) return ['Returned','intransit','ri-reply-line'];
+              if (str_contains($n, 'cancel') || str_contains($n,'отмен')) return ['Canceled','intransit','ri-close-circle-line'];
+              if (str_contains($n, 'created') || str_contains($n,'label') || str_contains($n,'наклад') || str_contains($n,'создан') || str_contains($n,'створ')) return ['Created','created','ri-add-line'];
+              if (str_contains($n, 'sort') || str_contains($n,'сорт') || str_contains($n,'process') || str_contains($n,'обработ')) return ['Processed at facility','arrived','ri-settings-5-line'];
+              if (str_contains($n, 'forward') || str_contains($n,'перенаправ') || str_contains($n,'rerout') || str_contains($n,'redirect')) return ['Forwarded','departed','ri-route-line'];
             }
             // Generic or "Moved on map"
             if ($n === '' || str_contains($n, 'moved on map') || str_contains($n, 'перемещ')) {
@@ -852,8 +875,14 @@ if ($cr_should_emit) {
 
               var st = (pkg && pkg.status ? String(pkg.status) : '').toLowerCase();
               var autoSt = (progress>=100?'delivered': (progress>0?'in_transit':'created'));
-              sb.textContent = st || autoSt;
-              sb.className = 'status-badge ' + (st?('status-'+st) : (progress>=100?'status-delivered': (progress>0?'status-in_transit':'status-created')));
+              var stKey = (st||'').replace(/[\s-]+/g,'_');
+              var labels = {
+                'in_transit':'In transit', 'delivered':'Delivered', 'created':'Created', 'out_for_delivery':'Out for delivery', 'arrived':'Arrived', 'departed':'Departed', 'customs':'Customs processing', 'exception':'Exception', 'on_hold':'On hold', 'returned':'Returned', 'canceled':'Canceled', 'ready_for_pickup':'Ready for pickup', 'delayed':'Delayed', 'active':'Active'
+              };
+              var finalKey = stKey || autoSt;
+              sb.textContent = labels[finalKey] || (st || autoSt);
+              var finalClassKey = (stKey ? stKey : (progress>=100?'delivered': (progress>0?'in_transit':'created')));
+              sb.className = 'status-badge status-' + finalClassKey;
             }
           }
         });
