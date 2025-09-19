@@ -30,7 +30,7 @@ if (file_exists(__DIR__ . '/.env')) {
 
 const DB_DIR  = __DIR__ . '/data';
 const DB_FILE = DB_DIR . '/tracker.sqlite';
-const VERSION = '2.0.10';
+const VERSION = '2.0.11';
 
 /**
  * Get the current version of the application.

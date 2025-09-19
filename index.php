@@ -68,6 +68,11 @@ function service_area_from_address(?string $addr): string {
     $take = array_slice($parts, max(0, $n-3));
     return implode(' – ', $take);
 }
+function format_utc_offset(int $mins): string {
+    $sign = $mins >= 0 ? '+' : '-';
+    $mins = abs($mins); $h = intdiv($mins, 60); $m = $mins % 60;
+    return sprintf('UTC%s%02d:%02d', $sign, $h, $m);
+}
 
 function iso_flag(string $iso): string {
     $iso = strtoupper(trim($iso));
@@ -81,11 +86,13 @@ function country_from_address(?string $addr): array {
     if ($addr === '') return ['name'=>'', 'iso'=>'', 'flag'=>''];
     $map = [
         'United States'=>'US','USA'=>'US','U.S.A.'=>'US','Canada'=>'CA','Mexico'=>'MX',
-        'Ukraine'=>'UA','Poland'=>'PL','Germany'=>'DE','France'=>'FR','Spain'=>'ES','Italy'=>'IT','Portugal'=>'PT','Netherlands'=>'NL','Belgium'=>'BE','Czechia'=>'CZ','Czech Republic'=>'CZ','Slovakia'=>'SK','Hungary'=>'HU','Romania'=>'RO','Bulgaria'=>'BG','Greece'=>'GR','Lithuania'=>'LT','Latvia'=>'LV','Estonia'=>'EE','Finland'=>'FI','Sweden'=>'SE','Norway'=>'NO','Denmark'=>'DK','Switzerland'=>'CH','Austria'=>'AT','Ireland'=>'IE','United Kingdom'=>'GB','Great Britain'=>'GB','UK'=>'GB','Iceland'=>'IS',
+        'Ukraine'=>'UA','Украина'=>'UA','Україна'=>'UA','Poland'=>'PL','Польша'=>'PL','Polska'=>'PL','Germany'=>'DE','Германия'=>'DE','Deutschland'=>'DE',
+        'France'=>'FR','Spain'=>'ES','Italy'=>'IT','Portugal'=>'PT','Netherlands'=>'NL','Belgium'=>'BE','Czechia'=>'CZ','Czech Republic'=>'CZ','Чехия'=>'CZ','Slovakia'=>'SK','Hungary'=>'HU','Romania'=>'RO','Bulgaria'=>'BG','Greece'=>'GR','Lithuania'=>'LT','Latvia'=>'LV','Estonia'=>'EE','Finland'=>'FI','Sweden'=>'SE','Norway'=>'NO','Denmark'=>'DK','Switzerland'=>'CH','Austria'=>'AT','Ireland'=>'IE','United Kingdom'=>'GB','Great Britain'=>'GB','UK'=>'GB','Iceland'=>'IS',
         'Turkey'=>'TR','Türkiye'=>'TR','Israel'=>'IL','United Arab Emirates'=>'AE','Saudi Arabia'=>'SA','Egypt'=>'EG','Morocco'=>'MA',
-        'Russia'=>'RU','Belarus'=>'BY','Georgia'=>'GE','Armenia'=>'AM','Azerbaijan'=>'AZ','Moldova'=>'MD',
+        'Russia'=>'RU','Россия'=>'RU','Belarus'=>'BY','Беларусь'=>'BY','Georgia'=>'GE','Armenia'=>'AM','Azerbaijan'=>'AZ','Moldova'=>'MD',
         'Brazil'=>'BR','Argentina'=>'AR','Chile'=>'CL','Uruguay'=>'UY','Paraguay'=>'PY','Colombia'=>'CO','Peru'=>'PE',
-        'China'=>'CN','Japan'=>'JP','South Korea'=>'KR','Korea, South'=>'KR','India'=>'IN','Singapore'=>'SG','Malaysia'=>'MY','Thailand'=>'TH','Vietnam'=>'VN','Philippines'=>'PH','Indonesia'=>'ID','Hong Kong'=>'HK','Taiwan'=>'TW','Australia'=>'AU','New Zealand'=>'NZ',
+        'China'=>'CN','Hong Kong'=>'HK','Taiwan'=>'TW','Japan'=>'JP','South Korea'=>'KR','Korea, South'=>'KR','India'=>'IN','Singapore'=>'SG','Malaysia'=>'MY','Thailand'=>'TH','Vietnam'=>'VN','Philippines'=>'PH','Indonesia'=>'ID',
+        'Australia'=>'AU','New Zealand'=>'NZ',
         'South Africa'=>'ZA'
     ];
     // Take last non-empty segment first
@@ -309,12 +316,17 @@ $version_info = checkVersion();
   .tl-row.customs .tl-dot{ background:#fff; border-color:#ff7a00; color:#ff7a00; }
   .tl-row.intransit .tl-dot{ background:#fff; border-color:#ff7a00; color:#ff7a00; }
   .tl-title{ font-weight:700; }
+  .tl-title .flag{ margin-right:6px; font-size:15px; vertical-align: baseline; }
   .tl-title.delivered{ color:#0f7a37; }
   .tl-title.intransit{ color:#b1040e; }
   .tl-sub{ font-size:13px; color:#333; margin-top:2px; text-transform: uppercase; letter-spacing:.2px; }
   .tl-meta{ font-size:12px; color:#5b6470; margin-top:3px; }
   .tl-meta a{ color:#b1040e; text-decoration:underline; }
   .tl-count{ display:inline-block; margin-left:8px; font-size:12px; color:#5b6470; background:#f1f3f7; border:1px solid #e3e6ea; border-radius:999px; padding:2px 8px; }
+  /* Border crossing divider */
+  .tl-row.divider .tl-dot{ background:#fff; border-color:#9aa6b2; color:#9aa6b2; }
+  .tl-row.divider .tl-content{ padding:6px 10px; border:1px dashed #d2d8df; border-radius:10px; background:#fbfdff; }
+  .tz-chip{ display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; background:#f3f6fb; border:1px solid #e1e6ef; font-size:12px; color:#334155; }
 
   /* Print styles tweak for timeline */
   @media print {
@@ -494,12 +506,16 @@ if ($cr_should_emit) {
                   $dt->setTimezone(new DateTimeZone($tz));
                   $timeLocal = format_time_local($dt->getTimestamp(), $locale);
                   $tzAbbr = $dt->format('T');
+                  $tzOffsetMin = (int)round($dt->getOffset()/60);
               } catch (Throwable $e) {
                   $timeLocal = $tsUtc ? format_time_local($tsUtc, $locale) : '';
                   $tzAbbr = 'UTC';
+                  $tzOffsetMin = 0;
               }
 
               $distKm = 0.0; $durSec = 0; $border = '';
+              $prevTzAbbr = $prev['tz_abbr'] ?? null;
+              $prevTzOffsetMin = $prev['tz_offset_min'] ?? null;
               if ($prev) {
                   if ($prev['lat'] !== null && $prev['lng'] !== null && $lat !== null && $lng !== null) {
                       $distKm = haversine_km((float)$prev['lat'], (float)$prev['lng'], (float)$lat, (float)$lng);
@@ -519,6 +535,9 @@ if ($cr_should_emit) {
                   'tsUtc' => $tsUtc,
                   'time_local' => $timeLocal,
                   'tz_abbr' => $tzAbbr,
+                  'tz_offset_min' => $tzOffsetMin,
+                  'prev_tz_abbr' => $prevTzAbbr,
+                  'prev_tz_offset_min' => $prevTzOffsetMin,
                   'country_name' => (string)($country['name'] ?? ''),
                   'iso' => $iso,
                   'flag' => (string)($country['flag'] ?? ''),
@@ -535,16 +554,26 @@ if ($cr_should_emit) {
           // Render days in DESC order
           krsort($enrichedByDay);
 
-          $classify = function(string $note): array {
-            $n = mb_strtolower($note);
-            $cls = 'intransit'; $icon = 'ri-alert-line';
-            if ($n === '') return [$cls, $icon];
-            if (str_contains($n, 'deliver') || str_contains($n, 'достав')) return ['delivered','ri-check-line'];
-            if (str_contains($n, 'courier') || str_contains($n, 'кур')) return ['courier','ri-truck-line'];
-            if (str_contains($n, 'arriv') || str_contains($n, 'приб')) return ['arrived','ri-inbox-archive-line'];
-            if (str_contains($n, 'depart') || str_contains($n, 'left') || str_contains($n, 'залиш')) return ['departed','ri-flight-takeoff-line'];
-            if (str_contains($n, 'custom')) return ['customs','ri-shield-check-line'];
-            return [$cls, $icon];
+          $statusize = function(string $note, string $addr, float $distKm, int $durSec): array {
+            $n = trim(mb_strtolower($note));
+            // Predefined mappings
+            if ($n !== ''){
+              if (str_contains($n, 'deliver')) return ['Delivered','delivered','ri-check-line'];
+              if (str_contains($n, 'courier') || str_contains($n, 'кур')) return ['Handed to courier','courier','ri-truck-line'];
+              if (str_contains($n, 'arriv') || str_contains($n, 'приб')) return ['Arrived at facility','arrived','ri-inbox-archive-line'];
+              if (str_contains($n, 'depart') || str_contains($n, 'left') || str_contains($n, 'відправ') || str_contains($n, 'отпр')) return ['Departed facility','departed','ri-flight-takeoff-line'];
+              if (str_contains($n, 'custom')) return ['Customs cleared','customs','ri-shield-check-line'];
+              if (str_contains($n, 'created') || str_contains($n, 'создан') || str_contains($n, 'створ')) return ['Created','created','ri-add-line'];
+            }
+            // Generic or "Moved on map"
+            if ($n === '' || str_contains($n, 'moved on map') || str_contains($n, 'перемещ')) {
+              if ($distKm >= 50) return ['In transit','intransit','ri-navigation-line'];
+              if ($distKm >= 1) return ['Departed facility','departed','ri-flight-takeoff-line'];
+              if ($addr !== '') return ['Arrived at facility','arrived','ri-inbox-archive-line'];
+              return ['Location updated','intransit','ri-information-line'];
+            }
+            // Default fallback
+            return [ucfirst($note), 'intransit', 'ri-alert-line'];
           };
           $upper = function(string $s): string { return function_exists('mb_strtoupper') ? mb_strtoupper($s) : strtoupper($s); };
         ?>
@@ -553,11 +582,24 @@ if ($cr_should_emit) {
           <details class="tl-day" open>
             <summary class="tl-day-header"><?=$label?> <span class="muted utc-offset" style="font-weight:500;">(<?=$utcStr?>)</span></summary>
             <div class="tl-rows">
-              <?php $rowsDesc = array_reverse($rows); $prevIsoDay = null; foreach ($rowsDesc as $en): $r=$en['row']; $note=$en['note']; $addr=$en['addr']; [$cls,$icon] = $classify($note); ?>
-                <?php if ($en['country_break'] && ($en['iso']||$addr)): $prevIsoDay = $en['iso']; ?>
+              <?php $rowsDesc = array_reverse($rows); foreach ($rowsDesc as $en): $r=$en['row']; $addr=$en['addr']; [$title,$cls,$icon] = $statusize((string)$en['note'], $addr, (float)$en['dist_km'], (int)$en['dur_sec']); ?>
+                <?php if ($en['country_break'] && ($en['iso']||$addr)): ?>
                   <div class="tl-country" style="margin:8px 0 2px; padding:6px 10px; background:#fff8e1; border:1px solid #ffe39c; border-radius:10px; display:inline-flex; align-items:center; gap:8px;">
                     <span style="font-size:18px; line-height:1;"><?=$en['flag']?></span>
                     <strong><?=h($en['country_name'] ?: 'Unknown country')?></strong>
+                  </div>
+                <?php endif; ?>
+                <?php if ($en['border']): $parts = explode('→', $en['border']); $isoPrev = trim($parts[0] ?? ''); $isoCurr = trim($parts[1] ?? ''); $flagPrev = $isoPrev? iso_flag($isoPrev):''; $tzPrev = $en['prev_tz_abbr'] ?? ''; $tzCurr = $en['tz_abbr'] ?? ''; $offPrev = $en['prev_tz_offset_min'] ?? null; $offCurr = $en['tz_offset_min'] ?? null; $delta = ($offPrev!==null && $offCurr!==null) ? ($offCurr-$offPrev) : 0; ?>
+                  <div class="tl-row divider">
+                    <div class="tl-time"><?=h(($en['time_local'] ?: ''))?> <span class="muted"><?=h($en['tz_abbr'])?></span></div>
+                    <div class="tl-line"><span class="tl-dot"><i class="ri-flag-2-line"></i></span></div>
+                    <div class="tl-content">
+                      <div class="tl-title" style="font-weight:600; color:#334155; display:flex; align-items:center; gap:8px;">
+                        <span><?=$flagPrev?></span> <span style="font-size:14px; color:#64748b;">→</span> <span><?=$en['flag']?></span>
+                        <span>Border crossed: <?=h($isoPrev)?> → <?=h($isoCurr)?></span>
+                        <span class="tz-chip"><i class="ri-time-line"></i> TZ: <?=h($tzPrev)?> → <?=h($tzCurr)?><?php if ($offPrev!==null && $offCurr!==null): $sign = $delta>=0?'+':'-'; $h = floor(abs($delta)/60); $m = abs($delta)%60; ?> (<?=$sign?><?=$h?>h<?=$m? ':'.str_pad((string)$m,2,'0',STR_PAD_LEFT):''?>)<?php endif; ?></span>
+                      </div>
+                    </div>
                   </div>
                 <?php endif; ?>
                 <div class="tl-row <?=$cls?>">
@@ -565,14 +607,13 @@ if ($cr_should_emit) {
                   <div class="tl-line"><span class="tl-dot"><i class="<?=$icon?>"></i></span></div>
                   <div class="tl-content">
                     <div class="tl-title <?=$cls==='delivered'?'delivered':'intransit'?>">
-                      <?=h($note ?: 'Status update')?>
+                      <?php if ($en['iso']): ?><span class="flag"><?=$en['flag']?></span><?php endif; ?><?=h($title)?>
                     </div>
                     <?php if ($addr): ?><div class="tl-sub"><?php echo h($upper($addr)); ?></div><?php endif; ?>
                     <div class="tl-meta">
                       <?php if ($en['dist_km'] > 0 || $en['dur_sec'] > 0): ?>
                         Leg: <?=number_format($en['dist_km'], 1)?> km · <?=h(format_duration((int)$en['dur_sec']))?>
                       <?php endif; ?>
-                      <?php if ($en['border']): ?> · Border crossed: <?=h($en['border'])?><?php endif; ?>
                       <?php if ($en['iso']): ?> · Country: <?=$en['flag']?> <?=h($en['country_name'])?><?php endif; ?>
                       <?php if (!empty($r['lat']) && !empty($r['lng'])): ?> · <a href="<?= 'https://www.google.com/maps?q=' . rawurlencode($r['lat'] . ',' . $r['lng']) ?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
                     </div>
