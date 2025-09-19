@@ -1,95 +1,95 @@
 # OpenParcelTracker
 
-OpenParcelTracker — это легковесная, самописная система отслеживания посылок на PHP с поддержкой управления отправлениями, истории перемещений и картографией. Простота установки и гибкость конфигурации позволяют использовать проект для личных и малых бизнес-решений.
+OpenParcelTracker is a lightweight, custom-built PHP parcel tracking system supporting shipment management and real-time geolocation.
 
 ## 🚀 Features
 
 ### Core Functionality
-- **Package Management**: создание, редактирование и управление посылками с уникальными трекинг-номерами
-- **Real-time Location Tracking**: GPS-координаты и история передвижений
-- **Interactive Maps**: интеграция с OpenStreetMap, перемещение маркеров для точного позиционирования
-- **Photo Upload Support**: прикрепление фото и документов
-- **Address Geocoding**: автоматическое определение адреса и ручная корректировка координат
-- **Status Management**: отслеживание статуса посылки
+- **Package Management**: Create, edit, and manage parcels with unique tracking numbers
+- **Real-time Location Tracking**: GPS coordinates and movement history
+- **Interactive Maps**: Integration with OpenStreetMap, drag-and-drop markers for precise positioning
+- **Photo Upload Support**: Attach photos and documents
+- **Address Geocoding**: Automatic address detection and manual coordinate adjustment
+- **Status Management**: Track parcel status
 
 ### User Interfaces
-- **Public Tracking Portal**: поиск по трекинг-номеру с визуализацией на карте
-- **Admin Panel**: полный интерфейс управления с drag'n'drop корректировкой на карте
-- **Responsive Design**: мобильная поддержка
-- **Multi-language Support**: расширяемая локализация
+- **Public Tracking Portal**: Search by tracking number with route visualization on the map
+- **Admin Panel**: Full management interface with drag-and-drop map correction
+- **Responsive Design**: Mobile support
+- **Multi-language Support**: Extensible localization
 
 ### Technical Features
-- **Database Flexibility**: MySQL и SQLite
-- **Auto-installer**: мастер быстрой установки
-- **Version Management**: встроенное обновление через GitHub
-- **Security**: безопасная аутентификация
-- **RESTful API**: AJAX эндпоинты
+- **Database Flexibility**: MySQL and SQLite
+- **Auto-installer**: Quick setup wizard
+- **Version Management**: Built-in update via GitHub
+- **Security**: Secure authentication
+- **RESTful API**: AJAX endpoints
 
 ## 📸 Screenshots
 
-### 1. Основной интерфейс трекинга и отображения маршрута
+### 1. Main tracking interface and route display
 
 ![screenshot-1](screenshots/screenshot-1.png)
 
-- Поиск посылки по трекинг-номеру
-- Визуализация маршрута на карте
-- Пошаговый прогресс доставки
-- Актуальный статус и адрес
+- Search parcels by tracking number
+- Route visualization on the map
+- Step-by-step delivery progress
+- Current status and address
 
-### 2. Детальная история передвижений
+### 2. Detailed movement history
 
 ![screenshot-2](screenshots/screenshot-2.png)
 
-- Хронологическое отображение всех событий: прибытие на объект, транзит, обновления статуса
-- Открытие адреса на карте одним кликом
-- Поддержка международных локаций и языков
+- Chronological display of all events: arrival, transit, status updates
+- Open address on the map with one click
+- Supports international locations and languages
 
-### 3. Админ-панель: список посылок и карта
+### 3. Admin panel: parcel list and map
 
 ![screenshot-3](screenshots/screenshot-3.png)
 
-- Список всех отправлений с быстрым фильтром и действиями: редактирование, удаление, добавление заметок
-- Перетаскивание маркеров на карте для корректировки положения
-- Быстрое добавление новых посылок с указанием адреса и координат
+- List of all shipments with quick filter and actions: edit, delete, add notes
+- Drag markers on the map to adjust positions
+- Quickly add new parcels with address and coordinates
 
-### 4. Админ-панель: редактирование посылки
+### 4. Admin panel: parcel editing
 
 ![screenshot-4](screenshots/screenshot-4.png)
 
-- Редактирование всех атрибутов посылки: название, статус, адрес, фото
-- Загрузка изображений для идентификации
-- Ввод дополнительной информации и заметок
+- Edit all parcel attributes: name, status, address, photo
+- Upload images for identification
+- Enter additional information and notes
 
-### 5. Дополнительный интерфейс/функция
+### 5. Additional interface/functionality
 
 ![screenshot-5](screenshots/screenshot-5.png)
 
-- Дополнительный интерфейс/функция
+- Additional interface/functionality
 
 ## 📋 Requirements
 
 - **PHP**: 7.4+
-- **Database**: MySQL 5.7+ или SQLite 3.x
-- **Web Server**: Apache/Nginx или любой совместимый сервер
+- **Database**: MySQL 5.7+ or SQLite 3.x
+- **Web Server**: Apache/Nginx or any compatible server
 - **Extensions**: PDO, JSON, upload
 
 ## 🛠️ Installation
 
 ### Option 1: Auto-Installer (Recommended)
-1. Загрузите файлы на сервер
-2. Откройте `http://yourdomain.com/installer.php`
-3. Следуйте инструкциям мастера
+1. Upload files to the server
+2. Open `http://yourdomain.com/installer.php`
+3. Follow the wizard instructions
 
 ### Option 2: Manual Installation
-1. Загрузите файлы
-2. Настройте файл `.env` (см. пример ниже)
-3. При первом запуске необходимые таблицы создаются автоматически
-4. Проверьте права на запись для папок `data` и `photos`
+1. Upload files
+2. Configure the `.env` file (see example below)
+3. On first run, required tables are created automatically
+4. Check write permissions for `data` and `photos` folders
 
 ## 🎯 Usage
 
-- **Публичная страница:** поиск и отслеживание посылок по номеру
-- **Админ-панель:** полное управление посылками, локациями и пользователями
+- **Public page:** search and track parcels by number
+- **Admin panel:** full management of parcels, locations, and users
 
 ## 📊 Database Schema
 
@@ -108,30 +108,30 @@ OpenParcelTracker — это легковесная, самописная сис
 | Variable     | Description        | Default    |
 |--------------|-------------------|------------|
 | DB_DRIVER    | mysql/sqlite      | mysql      |
-| DB_HOST      | host DB           | localhost  |
-| DB_NAME      | имя базы          | tracker    |
-| DB_USER      | пользователь      | -          |
-| DB_PASS      | пароль            | -          |
-| DB_CHARSET   | кодировка         | utf8mb4    |
+| DB_HOST      | DB host           | localhost  |
+| DB_NAME      | database name     | tracker    |
+| DB_USER      | DB user           | -          |
+| DB_PASS      | password          | -          |
+| DB_CHARSET   | charset           | utf8mb4    |
 
 ## 🔒 Security Considerations
 
-- После установки смените пароль администратора
-- Используйте надежные пароли для базы данных
-- Обеспечьте права на запись для папок
-- Рекомендуется использовать HTTPS
+- Change the admin password after installation
+- Use strong passwords for the database
+- Ensure write permissions for folders
+- It is recommended to use HTTPS
 
 ## 🔄 Updates
 
-- В админ-панели встроенная проверка и установка обновлений
+- Built-in update check and installation from the admin panel
 
 ## 🤝 Contributing
 
-1. Fork, ветка, изменения, тестирование, PR
+1. Fork, branch, changes, testing, PR
 
 ## 📝 License
 
-Open source (см. LICENSE)
+Open source (see LICENSE)
 
 ## 👨‍💻 Credits
 
@@ -140,8 +140,8 @@ Open source (см. LICENSE)
 
 ## 🐛 Troubleshooting
 
-- Проверьте настройки базы данных и права доступа
-- Следите за лимитами upload в PHP
-- Для карт — проверяйте соединение и координаты
+- Check database settings and access permissions
+- Watch for PHP upload limits
+- For maps — check connection and coordinates
 
 ---
