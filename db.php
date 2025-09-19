@@ -30,7 +30,7 @@ if (file_exists(__DIR__ . '/.env')) {
 
 const DB_DIR  = __DIR__ . '/data';
 const DB_FILE = DB_DIR . '/tracker.sqlite';
-const VERSION = '2.0.7';
+const VERSION = '2.0.2';
 
 /**
  * Get the current version of the application.
@@ -127,7 +127,7 @@ function ensure_schema(PDO $pdo, string $driver='sqlite'): void {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
 
-        // Locations table (legacy)
+        // Locations table
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS locations (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -139,44 +139,6 @@ function ensure_schema(PDO $pdo, string $driver='sqlite'): void {
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 INDEX (package_id),
                 CONSTRAINT fk_locations_packages FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-
-        // New shipment movements table with timezone support
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS shipment_movements (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                package_id INT NOT NULL,
-                source ENUM('map', 'manual', 'import') NOT NULL DEFAULT 'map',
-                is_manual TINYINT(1) NOT NULL DEFAULT 0,
-                event_dt_utc TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                event_dt_local DATETIME NULL,
-                tzid VARCHAR(100) NULL,
-                utc_offset INT NULL,
-                title VARCHAR(255) NULL,
-                message TEXT NULL,
-                from_city VARCHAR(255) NULL,
-                from_state VARCHAR(255) NULL,
-                from_country_code CHAR(2) NULL,
-                to_city VARCHAR(255) NULL,
-                to_state VARCHAR(255) NULL,
-                to_country_code CHAR(2) NULL,
-                facility_name VARCHAR(255) NULL,
-                gateway VARCHAR(255) NULL,
-                postal_code VARCHAR(20) NULL,
-                lat DOUBLE NULL,
-                lng DOUBLE NULL,
-                event_code VARCHAR(50) NULL,
-                status_code VARCHAR(50) NULL,
-                carrier VARCHAR(100) NULL,
-                piece_id VARCHAR(100) NULL,
-                sequence INT NOT NULL DEFAULT 0,
-                created_by VARCHAR(100) NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_package_id (package_id),
-                INDEX idx_country_date (to_country_code, event_dt_local),
-                INDEX idx_event_dt_local (event_dt_local),
-                CONSTRAINT fk_movements_packages FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
 
@@ -232,46 +194,6 @@ function ensure_schema(PDO $pdo, string $driver='sqlite'): void {
                 FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
             )
         ");
-
-        // New shipment movements table with timezone support (SQLite)
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS shipment_movements (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                package_id INTEGER NOT NULL,
-                source TEXT NOT NULL DEFAULT 'map',
-                is_manual INTEGER NOT NULL DEFAULT 0,
-                event_dt_utc TEXT NOT NULL,
-                event_dt_local TEXT,
-                tzid TEXT,
-                utc_offset INTEGER,
-                title TEXT,
-                message TEXT,
-                from_city TEXT,
-                from_state TEXT,
-                from_country_code TEXT,
-                to_city TEXT,
-                to_state TEXT,
-                to_country_code TEXT,
-                facility_name TEXT,
-                gateway TEXT,
-                postal_code TEXT,
-                lat REAL,
-                lng REAL,
-                event_code TEXT,
-                status_code TEXT,
-                carrier TEXT,
-                piece_id TEXT,
-                sequence INTEGER NOT NULL DEFAULT 0,
-                created_by TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
-            )
-        ");
-        
-        // Create indexes for SQLite
-        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_movements_package_id ON shipment_movements(package_id)");
-        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_movements_country_date ON shipment_movements(to_country_code, event_dt_local)");
-        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_movements_event_dt_local ON shipment_movements(event_dt_local)");
 
         // Settings key-value table
         $pdo->exec("

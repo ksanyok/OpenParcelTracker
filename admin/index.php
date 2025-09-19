@@ -183,7 +183,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     if ($action === 'login') {
         $username = trim((string)($_POST['username'] ?? ''));
-        $password = (string)$_POST['password'] ?? '';
+        $password = (string)($_POST['password'] ?? '');
         $stm = $pdo->prepare("SELECT id, password_hash FROM users WHERE username = ?");
         $stm->execute([$username]);
         $row = $stm->fetch();
@@ -311,23 +311,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stm = $pdo->prepare("UPDATE packages SET last_lat=?, last_lng=?, last_address=?, updated_at=? WHERE id=?");
             $stm->execute([$lat, $lng, $address ?: null, $now, $id]);
 
-            // Create new movement event using the new system
-            require_once __DIR__ . '/../movements.php';
-            
-            $movement_data = [
-                'source' => 'map',
-                'is_manual' => 0,
-                'lat' => $lat,
-                'lng' => $lng,
-                'title' => $note ?: 'Marker moved',
-                'message' => $address ? "Moved to: {$address}" : "Position updated on map",
-                'address' => $address,
-                'created_by' => 'admin'
-            ];
-            
-            create_movement_event($id, $movement_data);
-
-            // Legacy: also create in locations table for compatibility
             $stm2 = $pdo->prepare("INSERT INTO locations (package_id, lat, lng, address, note, created_at)
                                    VALUES (?,?,?,?,?, ?)");
             $stm2->execute([$id, $lat, $lng, $address ?: null, $note ?: 'Moved', $now]);
@@ -626,159 +609,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // New movements API
-    if ($action === 'getMovements') {
-        require_once __DIR__ . '/../movements.php';
-        
-        $id = (int)($_POST['id'] ?? 0);
-        $group_by = trim((string)($_POST['group_by'] ?? 'country,date'));
-        
-        if ($id <= 0) { 
-            echo json_encode(['ok'=>false,'error'=>'Invalid package id']); 
-            exit; 
-        }
-        
-        // Validate group_by parameter
-        if (!in_array($group_by, ['country,date', 'date,country'])) {
-            $group_by = 'country,date';
-        }
-        
-        $movements = get_shipment_movements($id, $group_by);
-        
-        // Format the response for the frontend
-        $formatted = [];
-        
-        if ($group_by === 'country,date') {
-            foreach ($movements as $country => $dates) {
-                $country_name = get_country_name($country);
-                $formatted[$country] = [
-                    'name' => $country_name,
-                    'code' => $country,
-                    'dates' => []
-                ];
-                
-                foreach ($dates as $date => $events) {
-                    $formatted[$country]['dates'][$date] = [
-                        'formatted_date' => format_movement_date($date),
-                        'events' => array_map(function($event) {
-                            return [
-                                'id' => $event['id'],
-                                'time' => format_movement_time($event['event_dt_local'], $event['utc_offset']),
-                                'title' => $event['title'] ?: 'Status Update',
-                                'message' => $event['message'] ?: '',
-                                'facility' => $event['facility_name'] ?: $event['gateway'] ?: '',
-                                'from_location' => trim(implode(', ', array_filter([
-                                    $event['from_city'], 
-                                    $event['from_state'], 
-                                    get_country_name($event['from_country_code'])
-                                ]))),
-                                'to_location' => trim(implode(', ', array_filter([
-                                    $event['to_city'], 
-                                    $event['to_state'], 
-                                    get_country_name($event['to_country_code'])
-                                ]))),
-                                'source' => $event['source'],
-                                'is_manual' => $event['is_manual'],
-                                'event_code' => $event['event_code'],
-                                'lat' => $event['lat'],
-                                'lng' => $event['lng']
-                            ];
-                        }, $events)
-                    ];
-                }
-            }
-        } else {
-            // date,country grouping
-            foreach ($movements as $date => $countries) {
-                $formatted[$date] = [
-                    'formatted_date' => format_movement_date($date),
-                    'countries' => []
-                ];
-                
-                foreach ($countries as $country => $events) {
-                    $formatted[$date]['countries'][$country] = [
-                        'name' => get_country_name($country),
-                        'code' => $country,
-                        'events' => array_map(function($event) {
-                            return [
-                                'id' => $event['id'],
-                                'time' => format_movement_time($event['event_dt_local'], $event['utc_offset']),
-                                'title' => $event['title'] ?: 'Status Update',
-                                'message' => $event['message'] ?: '',
-                                'facility' => $event['facility_name'] ?: $event['gateway'] ?: '',
-                                'from_location' => trim(implode(', ', array_filter([
-                                    $event['from_city'], 
-                                    $event['from_state'], 
-                                    get_country_name($event['from_country_code'])
-                                ]))),
-                                'to_location' => trim(implode(', ', array_filter([
-                                    $event['to_city'], 
-                                    $event['to_state'], 
-                                    get_country_name($event['to_country_code'])
-                                ]))),
-                                'source' => $event['source'],
-                                'is_manual' => $event['is_manual'],
-                                'event_code' => $event['event_code'],
-                                'lat' => $event['lat'],
-                                'lng' => $event['lng']
-                            ];
-                        }, $events)
-                    ];
-                }
-            }
-        }
-        
-        echo json_encode(['ok'=>true, 'data'=>$formatted, 'group_by'=>$group_by], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-
-    if ($action === 'addMovement') {
-        require_once __DIR__ . '/../movements.php';
-        
-        $package_id = (int)($_POST['package_id'] ?? 0);
-        $title = trim((string)($_POST['title'] ?? ''));
-        $message = trim((string)($_POST['message'] ?? ''));
-        $lat = isset($_POST['lat']) && $_POST['lat'] !== '' ? (float)$_POST['lat'] : null;
-        $lng = isset($_POST['lng']) && $_POST['lng'] !== '' ? (float)$_POST['lng'] : null;
-        $address = trim((string)($_POST['address'] ?? ''));
-        $facility_name = trim((string)($_POST['facility_name'] ?? ''));
-        $event_code = trim((string)($_POST['event_code'] ?? ''));
-        $status_code = trim((string)($_POST['status_code'] ?? ''));
-        
-        if ($package_id <= 0) {
-            echo json_encode(['ok'=>false,'error'=>'Invalid package id']);
-            exit;
-        }
-        
-        if (empty($title)) {
-            echo json_encode(['ok'=>false,'error'=>'Title is required']);
-            exit;
-        }
-        
-        $movement_data = [
-            'source' => 'manual',
-            'is_manual' => 1,
-            'title' => $title,
-            'message' => $message,
-            'lat' => $lat,
-            'lng' => $lng,
-            'address' => $address,
-            'facility_name' => $facility_name,
-            'event_code' => $event_code,
-            'status_code' => $status_code,
-            'created_by' => 'admin'
-        ];
-        
-        $success = create_movement_event($package_id, $movement_data);
-        
-        if ($success) {
-            echo json_encode(['ok'=>true]);
-        } else {
-            echo json_encode(['ok'=>false,'error'=>'Failed to create movement']);
-        }
-        exit;
-    }
-
     echo json_encode(['ok'=>false,'error'=>'Unknown action']);
     exit;
 }
@@ -961,11 +791,8 @@ $version_info = $logged ? checkVersion() : null;
       </form>
 
       <div id="historyBox" style="margin-top:16px; display:none;">
-        <div class="row" style="justify-content:space-between; align-items:center;">
-          <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-time-line"></i> History: <span id="histTitle"></span></h3>
-          <button id="addEventBtn" class="btn-small"><i class="ri-add-line"></i> Add event</button>
-        </div>
-        <div class="list" style="margin-top:12px;">
+        <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-time-line"></i> History: <span id="histTitle"></span></h3>
+        <div class="list">
           <table id="histTbl">
             <thead><tr><th>Date</th><th>Coords</th><th>Address</th><th>Note</th></tr></thead>
             <tbody></tbody>
@@ -1698,134 +1525,6 @@ $version_info = $logged ? checkVersion() : null;
       const j = await post('saveCrispSettings', payload);
       if (j.ok) alert('Saved'); else alert(j.error||'Save failed');
     });
-
-    // Add Movement Event Modal functionality
-    let currentPackageId = null;
-
-    document.getElementById('addEventBtn')?.addEventListener('click', ()=>{
-      if (!editId) return;
-      currentPackageId = editId;
-      document.getElementById('addEventModal').classList.add('show');
-    });
-
-    document.getElementById('addEventClose')?.addEventListener('click', ()=>{
-      document.getElementById('addEventModal').classList.remove('show');
-      clearEventForm();
-    });
-
-    document.getElementById('addEventModal')?.addEventListener('click', (e)=>{
-      if (e.target === document.getElementById('addEventModal')) {
-        document.getElementById('addEventModal').classList.remove('show');
-        clearEventForm();
-      }
-    });
-
-    document.getElementById('eventPickBtn')?.addEventListener('click', ()=>{
-      setPickMode('event', 'new');
-    });
-
-    // Handle event coordinate picking
-    async function handleEventPick(latlng) {
-      document.getElementById('eventLat').value = latlng.lat.toFixed(6);
-      document.getElementById('eventLng').value = latlng.lng.toFixed(6);
-      
-      // Try to reverse geocode for address
-      try {
-        const addr = await reverseGeocode(latlng.lat, latlng.lng);
-        if (!document.getElementById('eventAddress').value.trim()) {
-          document.getElementById('eventAddress').value = addr;
-        }
-      } catch (e) {
-        // Ignore reverse geocoding errors
-      }
-      
-      leavePickMode();
-    }
-
-    // Update the main map click handler to support event picking
-    const originalHandlePick = handlePick;
-    window.handlePick = function(latlng) {
-      if (pickState.target === 'event') {
-        handleEventPick(latlng);
-        return;
-      }
-      originalHandlePick(latlng);
-    };
-
-    function clearEventForm() {
-      document.getElementById('eventTitle').value = '';
-      document.getElementById('eventMessage').value = '';
-      document.getElementById('eventAddress').value = '';
-      document.getElementById('eventFacility').value = '';
-      document.getElementById('eventCode').value = '';
-      document.getElementById('eventLat').value = '';
-      document.getElementById('eventLng').value = '';
-      currentPackageId = null;
-    }
-
-    document.getElementById('addEventSave')?.addEventListener('click', async ()=>{
-      const title = document.getElementById('eventTitle').value.trim();
-      const message = document.getElementById('eventMessage').value.trim();
-      const address = document.getElementById('eventAddress').value.trim();
-      const facility = document.getElementById('eventFacility').value.trim();
-      const eventCode = document.getElementById('eventCode').value.trim();
-      const lat = document.getElementById('eventLat').value.trim();
-      const lng = document.getElementById('eventLng').value.trim();
-
-      if (!title) {
-        alert('Event title is required');
-        return;
-      }
-
-      if (!currentPackageId) {
-        alert('No package selected');
-        return;
-      }
-
-      const payload = {
-        package_id: currentPackageId,
-        title: title,
-        message: message,
-        address: address,
-        facility_name: facility,
-        event_code: eventCode
-      };
-
-      if (lat && lng && !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lng))) {
-        payload.lat = parseFloat(lat);
-        payload.lng = parseFloat(lng);
-      }
-
-      try {
-        const j = await post('addMovement', payload);
-        if (j.ok) {
-          alert('Event added successfully');
-          document.getElementById('addEventModal').classList.remove('show');
-          clearEventForm();
-          // Refresh history if visible
-          if (editId) {
-            showHistory(editId, document.getElementById('histTitle').textContent);
-          }
-        } else {
-          alert(j.error || 'Failed to add event');
-        }
-      } catch (e) {
-        alert('Network error while adding event');
-      }
-    });
-
-    // Keyboard support for modals
-    window.addEventListener('keydown', (e)=>{
-      if (e.key === 'Escape') {
-        if (document.getElementById('editModal')?.classList.contains('show')) {
-          closeEdit();
-        }
-        if (document.getElementById('addEventModal')?.classList.contains('show')) {
-          document.getElementById('addEventModal').classList.remove('show');
-          clearEventForm();
-        }
-      }
-    });
   </script>
 <?php endif; ?>
 </main>
@@ -1873,39 +1572,7 @@ $version_info = $logged ? checkVersion() : null;
     </div>
   </div>
 </div>
-
-<!-- Add Movement Event Modal -->
-<div id="addEventModal" class="modal" aria-hidden="true">
-  <div class="modal-dialog card">
-    <div class="row" style="justify-content:space-between; align-items:center;">
-      <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-add-line"></i> Add Movement Event</h3>
-      <button id="addEventClose" class="btn-ghost"><i class="ri-close-line"></i> Close</button>
-    </div>
-    <div class="grid" style="margin-top:12px;">
-      <div class="row">
-        <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-edit-line"></i><input type="text" id="eventTitle" placeholder="Event title (required) *" class="plain" style="width:100%" required></div>
-        <div class="input-wrap"><i class="ri-code-line"></i><input type="text" id="eventCode" placeholder="Event code" class="plain"></div>
-      </div>
-      <div class="row">
-        <div class="textarea-wrap" style="flex:1 1 auto;"><textarea id="eventMessage" placeholder="Detailed message (optional)"></textarea></div>
-      </div>
-      <div class="row">
-        <div class="input-wrap" style="flex:1 1 auto;"><i class="ri-map-pin-line"></i><input type="text" id="eventAddress" placeholder="Address or location" class="plain" style="width:100%"></div>
-        <div class="input-wrap"><i class="ri-building-line"></i><input type="text" id="eventFacility" placeholder="Facility/Gateway" class="plain"></div>
-      </div>
-      <div class="row">
-        <div class="input-wrap"><i class="ri-global-line"></i><input type="number" id="eventLat" placeholder="Latitude" class="plain" step="any"></div>
-        <div class="input-wrap"><i class="ri-global-line"></i><input type="number" id="eventLng" placeholder="Longitude" class="plain" step="any"></div>
-        <button type="button" id="eventPickBtn" class="btn-small"><i class="ri-focus-2-line"></i> Pick on map</button>
-      </div>
-      <div class="row">
-        <button id="addEventSave"><i class="ri-save-3-line"></i> Add Event</button>
-      </div>
-      <p class="hint">Timezone will be auto-detected based on coordinates or address. Local time will be calculated automatically.</p>
-    </div>
-  </div>
-</div>
-<!-- /Add Movement Event Modal -->
+<!-- /Edit Package Modal (moved) -->
 
 <?php require_once __DIR__ . '/../footer.php'; ?>
 <script>

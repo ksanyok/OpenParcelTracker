@@ -98,27 +98,17 @@ $pdo = pdo();
 $tracking = isset($_GET['tracking']) ? trim((string)$_GET['tracking']) : '';
 $pkg = null;
 $history = [];
-$movements = [];
 if ($tracking !== '') {
     $stm = $pdo->prepare("SELECT * FROM packages WHERE tracking_number = ?");
     $stm->execute([$tracking]);
     $pkg = $stm->fetch();
 
     if ($pkg) {
-        // Load legacy history for compatibility
         $stmH = $pdo->prepare("SELECT id, lat, lng, address, note, created_at 
                                FROM locations WHERE package_id = ? 
                                ORDER BY created_at DESC");
         $stmH->execute([$pkg['id']]);
         $history = $stmH->fetchAll();
-
-        // Load new movements with timezone support
-        require_once __DIR__ . '/movements.php';
-        $group_by = $_GET['group_by'] ?? 'country,date';
-        if (!in_array($group_by, ['country,date', 'date,country'])) {
-            $group_by = 'country,date';
-        }
-        $movements = get_shipment_movements((int)$pkg['id'], $group_by);
     }
 }
 
@@ -405,223 +395,10 @@ if ($cr_should_emit) {
 
   <!-- Movement history timeline -->
   <div class="card" style="margin-top:16px;">
-    <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-route-line"></i> Movement history</h3>
-      <?php if (!empty($movements)): ?>
-        <div class="row" style="gap:8px;">
-          <label class="row" style="gap:6px; align-items:center; font-size:13px;">
-            <span class="muted">Group by:</span>
-            <select id="groupBySelect" onchange="changeGrouping()" style="padding:4px 8px; border:1px solid #e3e6ea; border-radius:6px; font-size:13px;">
-              <option value="country,date" <?= $group_by === 'country,date' ? 'selected' : '' ?>>Country → Date</option>
-              <option value="date,country" <?= $group_by === 'date,country' ? 'selected' : '' ?>>Date → Country</option>
-            </select>
-          </label>
-        </div>
-      <?php endif; ?>
-    </div>
-
-    <?php if (empty($movements) && empty($history)): ?>
-      <p class="muted">No movement history available yet.</p>
-    <?php elseif (!empty($movements)): ?>
-      <div class="timeline" id="newTimeline">
-        <?php
-          require_once __DIR__ . '/movements.php';
-          $locale = get_locale();
-          
-          $classify_event = function(string $title, string $event_code): array {
-            $t = mb_strtolower($title);
-            $code = strtolower($event_code);
-            
-            // Default
-            $cls = 'intransit'; 
-            $icon = 'ri-alert-line';
-            
-            if ($t === '' && $code === '') { return [$cls, $icon]; }
-            
-            // Check event codes first
-            if (str_contains($code, 'delivered') || str_contains($code, 'delivery')) { 
-              return ['delivered', 'ri-check-line']; 
-            }
-            if (str_contains($code, 'pickup') || str_contains($code, 'collected')) { 
-              return ['courier', 'ri-truck-line']; 
-            }
-            if (str_contains($code, 'departed') || str_contains($code, 'dispatch')) { 
-              return ['departed', 'ri-flight-takeoff-line']; 
-            }
-            if (str_contains($code, 'arrived') || str_contains($code, 'received')) { 
-              return ['arrived', 'ri-inbox-archive-line']; 
-            }
-            if (str_contains($code, 'customs') || str_contains($code, 'clearance')) { 
-              return ['customs', 'ri-shield-check-line']; 
-            }
-            
-            // Check titles
-            if (str_contains($t, 'достав') || str_contains($t, 'deliver')) { 
-              return ['delivered', 'ri-check-line']; 
-            }
-            if (str_contains($t, 'кур') || str_contains($t, 'courier') || str_contains($t, 'pickup')) { 
-              return ['courier', 'ri-truck-line']; 
-            }
-            if (str_contains($t, 'прибув') || str_contains($t, 'arriv')) { 
-              return ['arrived', 'ri-inbox-archive-line']; 
-            }
-            if (str_contains($t, 'залиш') || str_contains($t, 'depart') || str_contains($t, 'left')) { 
-              return ['departed', 'ri-flight-takeoff-line']; 
-            }
-            if (str_contains($t, 'митн') || str_contains($t, 'custom') || str_contains($t, 'clearance')) { 
-              return ['customs', 'ri-shield-check-line']; 
-            }
-            
-            return [$cls, $icon];
-          };
-        ?>
-
-        <?php if ($group_by === 'country,date'): ?>
-          <?php foreach ($movements as $country_code => $dates): ?>
-            <?php $country_name = get_country_name($country_code); ?>
-            <details class="tl-day" open>
-              <summary class="tl-day-header">
-                <strong><?= h($country_name) ?></strong>
-                <span class="badge" style="margin-left:8px;"><?= h($country_code) ?></span>
-              </summary>
-              <div class="tl-rows">
-                <?php foreach ($dates as $date => $events): ?>
-                  <div style="margin-top:16px;">
-                    <h4 style="margin:8px 0; color:#5b6470; font-size:14px; font-weight:600;">
-                      <?= format_movement_date($date, $locale) ?>
-                    </h4>
-                    <?php foreach ($events as $event): ?>
-                      <?php
-                        [$cls, $icon] = $classify_event($event['title'], $event['event_code']);
-                        $facility = $event['facility_name'] ?: $event['gateway'] ?: '';
-                        $from_loc = trim(implode(', ', array_filter([
-                          $event['from_city'], 
-                          $event['from_state'], 
-                          get_country_name($event['from_country_code'])
-                        ])));
-                        $to_loc = trim(implode(', ', array_filter([
-                          $event['to_city'], 
-                          $event['to_state'], 
-                          get_country_name($event['to_country_code'])
-                        ])));
-                        $location = $to_loc ?: $from_loc;
-                        $maps_url = ($event['lat'] && $event['lng']) ? 
-                          ('https://www.google.com/maps?q=' . rawurlencode($event['lat'] . ',' . $event['lng'])) : '';
-                      ?>
-                      <div class="tl-row <?= $cls ?>">
-                        <div class="tl-time"><?= h($event['time']) ?></div>
-                        <div class="tl-line"><span class="tl-dot"><i class="<?= $icon ?>"></i></span></div>
-                        <div class="tl-content">
-                          <div class="tl-title <?= $cls === 'delivered' ? 'delivered' : 'intransit' ?>">
-                            <?= h($event['title']) ?>
-                            <?php if ($event['source'] === 'manual'): ?>
-                              <span class="tl-count">Manual</span>
-                            <?php endif; ?>
-                          </div>
-                          <?php if ($event['message']): ?>
-                            <div class="tl-sub" style="text-transform:none; font-size:12px; margin-top:4px;">
-                              <?= h($event['message']) ?>
-                            </div>
-                          <?php endif; ?>
-                          <?php if ($facility): ?>
-                            <div class="tl-sub"><?= h(strtoupper($facility)) ?></div>
-                          <?php endif; ?>
-                          <?php if ($location): ?>
-                            <div class="tl-sub"><?= h(strtoupper($location)) ?></div>
-                          <?php endif; ?>
-                          <div class="tl-meta">
-                            <a href="?tracking=<?= h($pkg['tracking_number']) ?>">1 Unit: <?= h($pkg['tracking_number']) ?></a>
-                            <?php if ($maps_url): ?>
-                              · <a href="<?= $maps_url ?>" target="_blank" rel="noopener">Open in Maps</a>
-                            <?php endif; ?>
-                            <?php if ($event['event_code']): ?>
-                              · Code: <?= h($event['event_code']) ?>
-                            <?php endif; ?>
-                          </div>
-                        </div>
-                      </div>
-                    <?php endforeach; ?>
-                  </div>
-                <?php endforeach; ?>
-              </div>
-            </details>
-          <?php endforeach; ?>
-
-        <?php else: // date,country grouping ?>
-          <?php foreach ($movements as $date => $countries): ?>
-            <details class="tl-day" open>
-              <summary class="tl-day-header">
-                <?= format_movement_date($date, $locale) ?>
-              </summary>
-              <div class="tl-rows">
-                <?php foreach ($countries as $country_code => $events): ?>
-                  <?php $country_name = get_country_name($country_code); ?>
-                  <div style="margin-top:16px;">
-                    <h4 style="margin:8px 0; color:#5b6470; font-size:14px; font-weight:600;">
-                      <?= h($country_name) ?> 
-                      <span class="badge" style="margin-left:8px;"><?= h($country_code) ?></span>
-                    </h4>
-                    <?php foreach ($events as $event): ?>
-                      <?php
-                        [$cls, $icon] = $classify_event($event['title'], $event['event_code']);
-                        $facility = $event['facility_name'] ?: $event['gateway'] ?: '';
-                        $from_loc = trim(implode(', ', array_filter([
-                          $event['from_city'], 
-                          $event['from_state'], 
-                          get_country_name($event['from_country_code'])
-                        ])));
-                        $to_loc = trim(implode(', ', array_filter([
-                          $event['to_city'], 
-                          $event['to_state'], 
-                          get_country_name($event['to_country_code'])
-                        ])));
-                        $location = $to_loc ?: $from_loc;
-                        $maps_url = ($event['lat'] && $event['lng']) ? 
-                          ('https://www.google.com/maps?q=' . rawurlencode($event['lat'] . ',' . $event['lng'])) : '';
-                      ?>
-                      <div class="tl-row <?= $cls ?>">
-                        <div class="tl-time"><?= h($event['time']) ?></div>
-                        <div class="tl-line"><span class="tl-dot"><i class="<?= $icon ?>"></i></span></div>
-                        <div class="tl-content">
-                          <div class="tl-title <?= $cls === 'delivered' ? 'delivered' : 'intransit' ?>">
-                            <?= h($event['title']) ?>
-                            <?php if ($event['source'] === 'manual'): ?>
-                              <span class="tl-count">Manual</span>
-                            <?php endif; ?>
-                          </div>
-                          <?php if ($event['message']): ?>
-                            <div class="tl-sub" style="text-transform:none; font-size:12px; margin-top:4px;">
-                              <?= h($event['message']) ?>
-                            </div>
-                          <?php endif; ?>
-                          <?php if ($facility): ?>
-                            <div class="tl-sub"><?= h(strtoupper($facility)) ?></div>
-                          <?php endif; ?>
-                          <?php if ($location): ?>
-                            <div class="tl-sub"><?= h(strtoupper($location)) ?></div>
-                          <?php endif; ?>
-                          <div class="tl-meta">
-                            <a href="?tracking=<?= h($pkg['tracking_number']) ?>">1 Unit: <?= h($pkg['tracking_number']) ?></a>
-                            <?php if ($maps_url): ?>
-                              · <a href="<?= $maps_url ?>" target="_blank" rel="noopener">Open in Maps</a>
-                            <?php endif; ?>
-                            <?php if ($event['event_code']): ?>
-                              · Code: <?= h($event['event_code']) ?>
-                            <?php endif; ?>
-                          </div>
-                        </div>
-                      </div>
-                    <?php endforeach; ?>
-                  </div>
-                <?php endforeach; ?>
-              </div>
-            </details>
-          <?php endforeach; ?>
-        <?php endif; ?>
-      </div>
-
-    <?php elseif (!empty($history)): ?>
-      <!-- Legacy timeline for backward compatibility -->
+    <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-route-line"></i> Movement history</h3>
+    <?php if (!$history): ?>
+      <p class="muted">No history yet.</p>
+    <?php else: ?>
       <div class="timeline">
         <?php
           // Group by day (DESC order already)
@@ -926,16 +703,6 @@ if ($cr_should_emit) {
         }
       } catch (e) {}
     })();
-
-    // Function to change grouping mode
-    function changeGrouping() {
-      var select = document.getElementById('groupBySelect');
-      if (!select) return;
-      
-      var currentUrl = new URL(window.location);
-      currentUrl.searchParams.set('group_by', select.value);
-      window.location.href = currentUrl.toString();
-    }
   </script>
   <?php endif; ?>
 </main>
