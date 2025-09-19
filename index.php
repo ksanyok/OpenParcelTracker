@@ -327,6 +327,10 @@ $version_info = checkVersion();
   .tl-row.divider .tl-dot{ background:#fff; border-color:#9aa6b2; color:#9aa6b2; }
   .tl-row.divider .tl-content{ padding:6px 10px; border:1px dashed #d2d8df; border-radius:10px; background:#fbfdff; }
   .tz-chip{ display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; background:#f3f6fb; border:1px solid #e1e6ef; font-size:12px; color:#334155; }
+  /* New horizontal border crossing separator */
+  .tl-hr{ position:relative; margin:10px 0; }
+  .tl-hr::before{ content:""; position:absolute; left:0; right:0; top:50%; height:1px; background:#e6e9ee; }
+  .tl-hr .chip{ position:relative; z-index:1; display:inline-flex; align-items:center; gap:8px; padding:4px 10px; border-radius:999px; background:#fff; border:1px solid #dbe2ea; color:#334155; font-size:12px; box-shadow:0 2px 6px rgba(17,24,39,0.06); }
 
   /* Print styles tweak for timeline */
   @media print {
@@ -551,8 +555,56 @@ if ($cr_should_emit) {
               $prev = $en;
           }
 
+          // Inject current package status as a synthetic timeline event (if present)
+          $pkgStatusRaw = strtolower(trim((string)($pkg['status'] ?? '')));
+          if ($pkgStatusRaw !== '') {
+              $statusTs = strtotime((string)($pkg['updated_at'] ?? '')) ?: time();
+              // Pick ISO/TZ from last enriched point or from package last_address
+              $lastIso = $prev['iso'] ?? '';
+              if ($lastIso === '' && !empty($pkg['last_address'])) {
+                  $cp = country_from_address((string)$pkg['last_address']);
+                  $lastIso = $cp['iso'] ?? '';
+              }
+              $tz = tz_from_iso($lastIso);
+              try {
+                  $dt = new DateTime('@' . $statusTs); $dt->setTimezone(new DateTimeZone($tz));
+                  $timeLocal = format_time_local($dt->getTimestamp(), $locale);
+                  $tzAbbr = $dt->format('T');
+                  $tzOffsetMin = (int)round($dt->getOffset()/60);
+              } catch (Throwable $e) {
+                  $timeLocal = format_time_local($statusTs, $locale); $tzAbbr = 'UTC'; $tzOffsetMin = 0;
+              }
+              $dayKey = gmdate('Y-m-d', $statusTs);
+              $enrichedByDay[$dayKey][] = [
+                  'row' => [ 'created_at' => gmdate('Y-m-d H:i:s', $statusTs), 'lat'=>null, 'lng'=>null, 'address'=>'', 'note'=>'' ],
+                  'lat'=>null, 'lng'=>null, 'addr'=>'', 'note'=>'', 'tsUtc'=>$statusTs,
+                  'time_local'=>$timeLocal, 'tz_abbr'=>$tzAbbr, 'tz_offset_min'=>$tzOffsetMin,
+                  'prev_tz_abbr'=>null, 'prev_tz_offset_min'=>null,
+                  'country_name'=>'', 'iso'=>$lastIso, 'flag'=>($lastIso? iso_flag($lastIso):''),
+                  'dist_km'=>0.0, 'dur_sec'=>0, 'border'=>'', 'country_break'=>false,
+                  'status_label' => $pkgStatusRaw,
+              ];
+          }
+
           // Render days in DESC order
           krsort($enrichedByDay);
+
+          // Map status labels (package/global) to title/class/icon
+          $mapPkgStatus = function(string $s): array {
+            $n = preg_replace('/\s+/', '_', mb_strtolower(trim($s)));
+            // synonyms
+            if (str_starts_with($n, 'deliver') || str_contains($n, 'достав')) return ['Delivered','delivered','ri-check-line'];
+            if ($n === 'active' || str_contains($n, 'актив')) return ['Active','active','ri-bolt-line'];
+            if ($n === 'in_transit' || str_contains($n, 'transit')) return ['In transit','intransit','ri-navigation-line'];
+            if ($n === 'out_for_delivery' || str_contains($n, 'courier')) return ['Out for delivery','courier','ri-truck-line'];
+            if ($n === 'ready_for_pickup') return ['Ready for pickup','arrived','ri-inbox-unarchive-line'];
+            if ($n === 'on_hold' || str_contains($n, 'hold')) return ['On hold','customs','ri-pause-circle-line'];
+            if ($n === 'exception' || str_contains($n, 'exception') || str_contains($n, 'issue')) return ['Exception','intransit','ri-error-warning-line'];
+            if ($n === 'canceled' || $n === 'cancelled') return ['Canceled','intransit','ri-close-circle-line'];
+            if ($n === 'returned' || str_contains($n, 'return')) return ['Returned','intransit','ri-reply-line'];
+            if ($n === 'created') return ['Created','created','ri-add-line'];
+            return [ucfirst($s), 'intransit', 'ri-information-line'];
+          };
 
           $statusize = function(string $note, string $addr, float $distKm, int $durSec): array {
             $n = trim(mb_strtolower($note));
@@ -582,7 +634,7 @@ if ($cr_should_emit) {
           <details class="tl-day" open>
             <summary class="tl-day-header"><?=$label?> <span class="muted utc-offset" style="font-weight:500;">(<?=$utcStr?>)</span></summary>
             <div class="tl-rows">
-              <?php $rowsDesc = array_reverse($rows); foreach ($rowsDesc as $en): $r=$en['row']; $addr=$en['addr']; [$title,$cls,$icon] = $statusize((string)$en['note'], $addr, (float)$en['dist_km'], (int)$en['dur_sec']); ?>
+              <?php $rowsDesc = array_reverse($rows); foreach ($rowsDesc as $en): $r=$en['row']; $addr=$en['addr']; $override = $en['status_label'] ?? null; if ($override){ [$title,$cls,$icon] = $mapPkgStatus((string)$override); } else { [$title,$cls,$icon] = $statusize((string)$en['note'], $addr, (float)$en['dist_km'], (int)$en['dur_sec']); } ?>
                 <?php if ($en['country_break'] && ($en['iso']||$addr)): ?>
                   <div class="tl-country" style="margin:8px 0 2px; padding:6px 10px; background:#fff8e1; border:1px solid #ffe39c; border-radius:10px; display:inline-flex; align-items:center; gap:8px;">
                     <span style="font-size:18px; line-height:1;"><?=$en['flag']?></span>
@@ -590,16 +642,8 @@ if ($cr_should_emit) {
                   </div>
                 <?php endif; ?>
                 <?php if ($en['border']): $parts = explode('→', $en['border']); $isoPrev = trim($parts[0] ?? ''); $isoCurr = trim($parts[1] ?? ''); $flagPrev = $isoPrev? iso_flag($isoPrev):''; $tzPrev = $en['prev_tz_abbr'] ?? ''; $tzCurr = $en['tz_abbr'] ?? ''; $offPrev = $en['prev_tz_offset_min'] ?? null; $offCurr = $en['tz_offset_min'] ?? null; $delta = ($offPrev!==null && $offCurr!==null) ? ($offCurr-$offPrev) : 0; ?>
-                  <div class="tl-row divider">
-                    <div class="tl-time"><?=h(($en['time_local'] ?: ''))?> <span class="muted"><?=h($en['tz_abbr'])?></span></div>
-                    <div class="tl-line"><span class="tl-dot"><i class="ri-flag-2-line"></i></span></div>
-                    <div class="tl-content">
-                      <div class="tl-title" style="font-weight:600; color:#334155; display:flex; align-items:center; gap:8px;">
-                        <span><?=$flagPrev?></span> <span style="font-size:14px; color:#64748b;">→</span> <span><?=$en['flag']?></span>
-                        <span>Border crossed: <?=h($isoPrev)?> → <?=h($isoCurr)?></span>
-                        <span class="tz-chip"><i class="ri-time-line"></i> TZ: <?=h($tzPrev)?> → <?=h($tzCurr)?><?php if ($offPrev!==null && $offCurr!==null): $sign = $delta>=0?'+':'-'; $h = floor(abs($delta)/60); $m = abs($delta)%60; ?> (<?=$sign?><?=$h?>h<?=$m? ':'.str_pad((string)$m,2,'0',STR_PAD_LEFT):''?>)<?php endif; ?></span>
-                      </div>
-                    </div>
+                  <div class="tl-hr">
+                    <span class="chip"><span><?=$flagPrev?></span><span>Border crossed: <?=h($isoPrev)?> → <?=h($isoCurr)?></span><span><?=$en['flag']?></span><?php if ($offPrev!==null && $offCurr!==null): $sign = $delta>=0?'+':'-'; $h = floor(abs($delta)/60); $m = abs($delta)%60; ?><span class="tz-chip"><i class="ri-time-line"></i> TZ <?=h($tzPrev)?> → <?=h($tzCurr)?> (<?=$sign?><?=$h?>h<?=$m? ':'.str_pad((string)$m,2,'0',STR_PAD_LEFT):''?>)</span><?php endif; ?></span>
                   </div>
                 <?php endif; ?>
                 <div class="tl-row <?=$cls?>">

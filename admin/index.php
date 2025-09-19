@@ -315,6 +315,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                    VALUES (?,?,?,?,?, ?)");
             $stm2->execute([$id, $lat, $lng, $address ?: null, $note ?: 'Moved', $now]);
 
+            // Fetch previous status to detect change
+            $stmS = $pdo->prepare("SELECT status FROM packages WHERE id = ?");
+            $stmS->execute([$id]);
+            $rowS = $stmS->fetch();
+            $oldStatus = strtolower(trim((string)($rowS['status'] ?? '')));
+
             // Auto status update: in_transit or delivered if near destination
             $newStatus = 'in_transit';
             // fetch destination
@@ -343,6 +349,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     }
                 }
             }
+
+            // If status actually changed, log it in history at current position
+            if ($newStatus !== '' && $newStatus !== $oldStatus) {
+                $pretty = ucwords(str_replace('_',' ', strtolower($newStatus)));
+                $stmLog = $pdo->prepare("INSERT INTO locations (package_id, lat, lng, address, note, created_at) VALUES (?,?,?,?,?, ?)");
+                $stmLog->execute([$id, $lat, $lng, $address ?: null, 'Status: ' . $pretty, $now]);
+            }
+
             $stm4 = $pdo->prepare("UPDATE packages SET status=?, updated_at=? WHERE id=?");
             $stm4->execute([$newStatus, $now, $id]);
 
@@ -416,7 +430,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
 
         // Fetch current
-        $stm = $pdo->prepare("SELECT tracking_number, image_path FROM packages WHERE id = ?");
+        $stm = $pdo->prepare("SELECT tracking_number, image_path, status, last_lat, last_lng, last_address FROM packages WHERE id = ?");
         $stm->execute([$id]);
         $cur = $stm->fetch();
         if (!$cur) { echo json_encode(['ok'=>false,'error'=>'Not found']); exit; }
@@ -435,9 +449,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $imagePath = $res['path'];
         }
 
+        $oldStatus = strtolower(trim((string)($cur['status'] ?? '')));
+        $newStatus = strtolower(trim($status));
+
         $now = date('Y-m-d H:i:s');
         $stm = $pdo->prepare("UPDATE packages SET title=?, arriving=?, destination=?, delivery_option=?, description=?, status=?, image_path=?, updated_at=? WHERE id=?");
         $stm->execute([$title ?: null, $arriving ?: null, $destination ?: null, $deliveryOption ?: null, $description ?: null, $status ?: null, $imagePath ?: null, $now, $id]);
+
+        // If status value changed and we have last coords, log to history
+        $hasLatLng = ($cur['last_lat'] !== null && $cur['last_lng'] !== null);
+        if ($newStatus !== '' && $newStatus !== $oldStatus && $hasLatLng) {
+            $pretty = ucwords(str_replace('_',' ', $newStatus));
+            $stm2 = $pdo->prepare("INSERT INTO locations (package_id, lat, lng, address, note, created_at) VALUES (?,?,?,?,?, ?)");
+            $stm2->execute([
+                $id,
+                (float)$cur['last_lat'],
+                (float)$cur['last_lng'],
+                $cur['last_address'] ?? null,
+                'Status: ' . $pretty,
+                $now
+            ]);
+        }
+
         echo json_encode(['ok'=>true]);
         exit;
     }
