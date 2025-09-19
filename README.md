@@ -27,44 +27,44 @@ OpenParcelTracker — это легковесная, самописная сис
 
 ## 📸 Screenshots
 
-### 1. Основной интерфейс трекинга и отображения маршрута
+### 1. Main tracking interface and route display
 
 ![screenshot-1](screenshots/screenshot-1.png)
 
-- Поиск посылки по трекинг-номеру
-- Визуализация маршрута на карте
-- Пошаговый прогресс доставки
-- Актуальный статус и адрес
+- Package search by tracking number
+- Route visualization on map
+- Step-by-step delivery progress
+- Current status and address
 
-### 2. Детальная история передвижений
+### 2. Detailed movement history
 
 ![screenshot-2](screenshots/screenshot-2.png)
 
-- Хронологическое отображение всех событий: прибытие на объект, транзит, обновления статуса
-- Открытие адреса на карте одним кликом
-- Поддержка международных локаций и языков
+- Chronological display of all events: facility arrivals, transit, status updates
+- One-click address opening on map
+- International locations and language support
 
-### 3. Админ-панель: список посылок и карта
+### 3. Admin panel: package list and map
 
 ![screenshot-3](screenshots/screenshot-3.png)
 
-- Список всех отправлений с быстрым фильтром и действиями: редактирование, удаление, добавление заметок
-- Перетаскивание маркеров на карте для корректировки положения
-- Быстрое добавление новых посылок с указанием адреса и координат
+- List of all shipments with quick filter and actions: edit, delete, add notes
+- Drag and drop map markers for position adjustment
+- Quick addition of new packages with address and coordinates
 
-### 4. Админ-панель: редактирование посылки
+### 4. Admin panel: package editing
 
 ![screenshot-4](screenshots/screenshot-4.png)
 
-- Редактирование всех атрибутов посылки: название, статус, адрес, фото
-- Загрузка изображений для идентификации
-- Ввод дополнительной информации и заметок
+- Edit all package attributes: title, status, address, photos
+- Image upload for identification
+- Additional information and notes input
 
-### 5. Дополнительный интерфейс/функция
+### 5. Additional interface/functionality
 
 ![screenshot-5](screenshots/screenshot-5.png)
 
-- Дополнительный интерфейс/функция
+- Additional interface/functionality
 
 ## 📋 Requirements
 
