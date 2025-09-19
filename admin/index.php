@@ -579,6 +579,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    // Map settings endpoints: auto-zoom toggle in admin
+    if ($action === 'getMapSettings') {
+        $data = [
+            'auto_zoom' => setting_get('admin_auto_zoom', '1') ?? '1',
+        ];
+        echo json_encode(['ok'=>true,'data'=>$data], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($action === 'saveMapSettings') {
+        $auto = isset($_POST['auto_zoom']) && $_POST['auto_zoom'] === '1' ? '1' : '0';
+        setting_set('admin_auto_zoom', $auto);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
     if ($action === 'saveCrispSettings') {
         $enabled = isset($_POST['enabled']) && $_POST['enabled'] === '1' ? '1' : '0';
         $website_id = trim((string)($_POST['website_id'] ?? ''));
@@ -739,6 +755,12 @@ $version_info = $logged ? checkVersion() : null;
     <div class="card">
       <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-map-pin-line"></i> Map</h3>
       <div id="map"></div>
+      <div class="row" style="margin-top:8px; align-items:center; gap:12px;">
+        <label class="row" style="gap:8px; align-items:center;">
+          <input type="checkbox" id="autoZoomToggle"> Auto-zoom
+        </label>
+        <span class="hint">Disable to prevent map from refitting when markers move or list refreshes.</span>
+      </div>
       <p class="hint" style="margin-top:8px;">Tip: drag a marker to move a package. Click a marker to set by address or view mini-info.</p>
     </div>
     <div class="card">
@@ -896,6 +918,24 @@ $version_info = $logged ? checkVersion() : null;
     }).addTo(map);
     map.setView([31.0461, 34.8516], 7);
 
+    // Auto-zoom setting
+    let autoZoomEnabled = true;
+    async function loadMapSettings(){
+      try{
+        const j = await post('getMapSettings');
+        if(j.ok){
+          autoZoomEnabled = (j.data.auto_zoom === '1');
+          const cb = document.getElementById('autoZoomToggle');
+          if (cb) cb.checked = autoZoomEnabled;
+        }
+      }catch{}
+    }
+    loadMapSettings();
+    document.getElementById('autoZoomToggle')?.addEventListener('change', async (e)=>{
+      autoZoomEnabled = !!e.target.checked;
+      await post('saveMapSettings', { auto_zoom: autoZoomEnabled ? '1' : '0' });
+    });
+
     // Picking Start/Destination on map
     const pickState = { active:false, target:null, ctx:null };
     let pickStartMarker = null, pickDestMarker = null, pickRoute = null;
@@ -1005,7 +1045,7 @@ $version_info = $logged ? checkVersion() : null;
         } else { pickDestMarker.setLatLng(latlng); }
       }
       updatePickPreview();
-      map.flyTo(latlng, 13);
+      if (autoZoomEnabled) { map.flyTo(latlng, 13); }
       return true;
     }
 
@@ -1202,7 +1242,7 @@ $version_info = $logged ? checkVersion() : null;
       if (rows.length > 0) {
         const pts = rows.filter(r=>r.last_lat!==null && r.last_lng!==null).map(r=>[r.last_lat, r.last_lng]);
         if (pts.length > 0) {
-          map.fitBounds(pts, { padding:[30,30] });
+          if (autoZoomEnabled) { map.fitBounds(pts, { padding:[30,30] }); }
         }
       }
     }
@@ -1318,7 +1358,7 @@ $version_info = $logged ? checkVersion() : null;
       // Fit bounds to include current position too if present
       const cur = currentData.find(x=>x.id===pkg.id);
       if(cur && cur.last_lat!==null && cur.last_lng!==null){ layers.push([cur.last_lat, cur.last_lng]); }
-      if(layers.length){ map.fitBounds(layers, { padding:[30,30] }); }
+      if(layers.length){ if (autoZoomEnabled) { map.fitBounds(layers, { padding:[30,30] }); } }
     }
 
     // Edit panel logic (modal)
