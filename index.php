@@ -69,6 +69,76 @@ function service_area_from_address(?string $addr): string {
     return implode(' – ', $take);
 }
 
+function iso_flag(string $iso): string {
+    $iso = strtoupper(trim($iso));
+    if (!preg_match('/^[A-Z]{2}$/', $iso)) return '';
+    $base = 127397; // 0x1F1E6 - 'A'
+    $chars = [ord($iso[0]) + $base, ord($iso[1]) + $base];
+    return mb_convert_encoding('&#' . $chars[0] . ';&#' . $chars[1] . ';', 'UTF-8', 'HTML-ENTITIES');
+}
+function country_from_address(?string $addr): array {
+    $addr = trim((string)$addr);
+    if ($addr === '') return ['name'=>'', 'iso'=>'', 'flag'=>''];
+    $map = [
+        'United States'=>'US','USA'=>'US','U.S.A.'=>'US','Canada'=>'CA','Mexico'=>'MX',
+        'Ukraine'=>'UA','Poland'=>'PL','Germany'=>'DE','France'=>'FR','Spain'=>'ES','Italy'=>'IT','Portugal'=>'PT','Netherlands'=>'NL','Belgium'=>'BE','Czechia'=>'CZ','Czech Republic'=>'CZ','Slovakia'=>'SK','Hungary'=>'HU','Romania'=>'RO','Bulgaria'=>'BG','Greece'=>'GR','Lithuania'=>'LT','Latvia'=>'LV','Estonia'=>'EE','Finland'=>'FI','Sweden'=>'SE','Norway'=>'NO','Denmark'=>'DK','Switzerland'=>'CH','Austria'=>'AT','Ireland'=>'IE','United Kingdom'=>'GB','Great Britain'=>'GB','UK'=>'GB','Iceland'=>'IS',
+        'Turkey'=>'TR','Türkiye'=>'TR','Israel'=>'IL','United Arab Emirates'=>'AE','Saudi Arabia'=>'SA','Egypt'=>'EG','Morocco'=>'MA',
+        'Russia'=>'RU','Belarus'=>'BY','Georgia'=>'GE','Armenia'=>'AM','Azerbaijan'=>'AZ','Moldova'=>'MD',
+        'Brazil'=>'BR','Argentina'=>'AR','Chile'=>'CL','Uruguay'=>'UY','Paraguay'=>'PY','Colombia'=>'CO','Peru'=>'PE',
+        'China'=>'CN','Japan'=>'JP','South Korea'=>'KR','Korea, South'=>'KR','India'=>'IN','Singapore'=>'SG','Malaysia'=>'MY','Thailand'=>'TH','Vietnam'=>'VN','Philippines'=>'PH','Indonesia'=>'ID','Hong Kong'=>'HK','Taiwan'=>'TW','Australia'=>'AU','New Zealand'=>'NZ',
+        'South Africa'=>'ZA'
+    ];
+    // Take last non-empty segment first
+    $parts = array_values(array_filter(array_map('trim', explode(',', $addr)), fn($x)=>$x!==''));
+    $candidates = [];
+    if ($parts) { $candidates[] = end($parts); }
+    $candidates[] = $addr; // fallback scan
+    foreach ($candidates as $cand){
+        foreach ($map as $name=>$iso){
+            if (stripos($cand, $name) !== false) {
+                return ['name'=>$name, 'iso'=>$iso, 'flag'=>iso_flag($iso)];
+            }
+        }
+    }
+    // If still not found, return last segment as name without iso
+    $name = $parts ? end($parts) : '';
+    return ['name'=>$name, 'iso'=>'', 'flag'=>''];
+}
+function tz_from_iso(string $iso): string {
+    $iso = strtoupper($iso);
+    $m = [
+      'US'=>'America/New_York', 'CA'=>'America/Toronto', 'MX'=>'America/Mexico_City',
+      'GB'=>'Europe/London', 'IE'=>'Europe/Dublin', 'PT'=>'Europe/Lisbon',
+      'ES'=>'Europe/Madrid', 'FR'=>'Europe/Paris', 'BE'=>'Europe/Brussels', 'NL'=>'Europe/Amsterdam', 'DE'=>'Europe/Berlin', 'CH'=>'Europe/Zurich', 'AT'=>'Europe/Vienna', 'IT'=>'Europe/Rome', 'PL'=>'Europe/Warsaw', 'CZ'=>'Europe/Prague', 'SK'=>'Europe/Bratislava', 'HU'=>'Europe/Budapest', 'RO'=>'Europe/Bucharest', 'BG'=>'Europe/Sofia', 'GR'=>'Europe/Athens', 'LT'=>'Europe/Vilnius', 'LV'=>'Europe/Riga', 'EE'=>'Europe/Tallinn', 'FI'=>'Europe/Helsinki', 'SE'=>'Europe/Stockholm', 'NO'=>'Europe/Oslo', 'DK'=>'Europe/Copenhagen', 'IS'=>'Atlantic/Reykjavik',
+      'UA'=>'Europe/Kyiv', 'RU'=>'Europe/Moscow', 'BY'=>'Europe/Minsk', 'MD'=>'Europe/Chisinau', 'GE'=>'Asia/Tbilisi', 'AM'=>'Asia/Yerevan', 'AZ'=>'Asia/Baku',
+      'TR'=>'Europe/Istanbul', 'IL'=>'Asia/Jerusalem', 'AE'=>'Asia/Dubai', 'SA'=>'Asia/Riyadh', 'EG'=>'Africa/Cairo', 'MA'=>'Africa/Casablanca',
+      'BR'=>'America/Sao_Paulo', 'AR'=>'America/Argentina/Buenos_Aires', 'CL'=>'America/Santiago', 'UY'=>'America/Montevideo', 'PY'=>'America/Asuncion', 'CO'=>'America/Bogota', 'PE'=>'America/Lima',
+      'CN'=>'Asia/Shanghai', 'HK'=>'Asia/Hong_Kong', 'TW'=>'Asia/Taipei', 'JP'=>'Asia/Tokyo', 'KR'=>'Asia/Seoul', 'IN'=>'Asia/Kolkata', 'SG'=>'Asia/Singapore', 'MY'=>'Asia/Kuala_Lumpur', 'TH'=>'Asia/Bangkok', 'VN'=>'Asia/Ho_Chi_Minh', 'PH'=>'Asia/Manila',
+      'AU'=>'Australia/Sydney', 'NZ'=>'Pacific/Auckland', 'ZA'=>'Africa/Johannesburg'
+    ];
+    return $m[$iso] ?? 'UTC';
+}
+function haversine_km(float $lat1, float $lon1, float $lat2, float $lon2): float {
+    $R = 6371.0; // km
+    $toRad = function($x){ return $x * M_PI / 180; };
+    $dLat = $toRad($lat2 - $lat1);
+    $dLon = $toRad($lon2 - $lon1);
+    $a = sin($dLat/2)**2 + cos($toRad($lat1)) * cos($toRad($lat2)) * sin($dLon/2)**2;
+    $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+    return $R * $c;
+}
+function format_duration(int $secs): string {
+    $secs = max(0, $secs);
+    $d = intdiv($secs, 86400); $secs %= 86400;
+    $h = intdiv($secs, 3600); $secs %= 3600;
+    $m = intdiv($secs, 60);
+    $parts = [];
+    if ($d) $parts[] = $d . 'd';
+    if ($h) $parts[] = $h . 'h';
+    if ($m || !$parts) $parts[] = $m . 'm';
+    return implode(' ', $parts);
+}
+
 function checkVersion(): ?array {
     $url = 'https://raw.githubusercontent.com/ksanyok/OpenParcelTracker/main/db.php';
     $context = stream_context_create([
@@ -401,90 +471,113 @@ if ($cr_should_emit) {
     <?php else: ?>
       <div class="timeline">
         <?php
-          // Group by day (DESC order already)
-          $groups = [];
-          foreach ($history as $row) {
-            $ts = strtotime((string)$row['created_at']);
-            $dayKey = $ts ? date('Y-m-d', $ts) : 'unknown';
-            $groups[$dayKey][] = $row;
-          }
-          krsort($groups);
-
           $locale = get_locale();
           $utcStr = utc_offset_str();
 
+          // Enrich history with country/flag/tz, leg distance and duration, and border crossing info
+          $histAsc = array_reverse($history); // chronological
+          $enrichedByDay = [];
+          $prev = null;
+          foreach ($histAsc as $r) {
+              $lat = isset($r['lat']) ? (float)$r['lat'] : null;
+              $lng = isset($r['lng']) ? (float)$r['lng'] : null;
+              $addr = (string)($r['address'] ?? '');
+              $note = (string)($r['note'] ?? '');
+              $tsUtc = strtotime((string)$r['created_at']);
+              $dayKey = $tsUtc ? gmdate('Y-m-d', $tsUtc) : 'unknown';
+
+              $country = country_from_address($addr);
+              $iso = $country['iso'] ?? '';
+              $tz = tz_from_iso($iso);
+              try {
+                  $dt = new DateTime((string)$r['created_at'], new DateTimeZone('UTC'));
+                  $dt->setTimezone(new DateTimeZone($tz));
+                  $timeLocal = format_time_local($dt->getTimestamp(), $locale);
+                  $tzAbbr = $dt->format('T');
+              } catch (Throwable $e) {
+                  $timeLocal = $tsUtc ? format_time_local($tsUtc, $locale) : '';
+                  $tzAbbr = 'UTC';
+              }
+
+              $distKm = 0.0; $durSec = 0; $border = '';
+              if ($prev) {
+                  if ($prev['lat'] !== null && $prev['lng'] !== null && $lat !== null && $lng !== null) {
+                      $distKm = haversine_km((float)$prev['lat'], (float)$prev['lng'], (float)$lat, (float)$lng);
+                  }
+                  if ($tsUtc && ($prev['tsUtc'] ?? 0)) {
+                      $durSec = max(0, $tsUtc - (int)$prev['tsUtc']);
+                  }
+                  if (($prev['iso'] ?? '') !== $iso && $iso !== '' && ($prev['iso'] ?? '') !== '') {
+                      $border = ($prev['iso'] . ' → ' . $iso);
+                  }
+              }
+
+              $en = [
+                  'row' => $r,
+                  'lat' => $lat, 'lng' => $lng,
+                  'addr' => $addr, 'note' => $note,
+                  'tsUtc' => $tsUtc,
+                  'time_local' => $timeLocal,
+                  'tz_abbr' => $tzAbbr,
+                  'country_name' => (string)($country['name'] ?? ''),
+                  'iso' => $iso,
+                  'flag' => (string)($country['flag'] ?? ''),
+                  'dist_km' => $distKm,
+                  'dur_sec' => $durSec,
+                  'border' => $border,
+                  'country_break' => !$prev || (($prev['iso'] ?? '') !== $iso),
+              ];
+
+              $enrichedByDay[$dayKey][] = $en;
+              $prev = $en;
+          }
+
+          // Render days in DESC order
+          krsort($enrichedByDay);
+
           $classify = function(string $note): array {
             $n = mb_strtolower($note);
-            $cls = 'intransit'; $icon = 'ri-alert-line'; // triangle-ish for in-transit
-            if ($n === '') { return [$cls, $icon]; }
-            if (str_contains($n, 'достав') || str_contains($n, 'deliver')) { return ['delivered', 'ri-check-line']; }
-            if (str_contains($n, 'кур') || str_contains($n, 'courier')) { return ['courier', 'ri-truck-line']; }
-            if (str_contains($n, 'прибув') || str_contains($n, 'arriv')) { return ['arrived', 'ri-inbox-archive-line']; }
-            if (str_contains($n, 'залиш') || str_contains($n, 'depart') || str_contains($n, 'left')) { return ['departed', 'ri-flight-takeoff-line']; }
-            if (str_contains($n, 'митн') || str_contains($n, 'custom')) { return ['customs', 'ri-shield-check-line']; }
+            $cls = 'intransit'; $icon = 'ri-alert-line';
+            if ($n === '') return [$cls, $icon];
+            if (str_contains($n, 'deliver') || str_contains($n, 'достав')) return ['delivered','ri-check-line'];
+            if (str_contains($n, 'courier') || str_contains($n, 'кур')) return ['courier','ri-truck-line'];
+            if (str_contains($n, 'arriv') || str_contains($n, 'приб')) return ['arrived','ri-inbox-archive-line'];
+            if (str_contains($n, 'depart') || str_contains($n, 'left') || str_contains($n, 'залиш')) return ['departed','ri-flight-takeoff-line'];
+            if (str_contains($n, 'custom')) return ['customs','ri-shield-check-line'];
             return [$cls, $icon];
           };
           $upper = function(string $s): string { return function_exists('mb_strtoupper') ? mb_strtoupper($s) : strtoupper($s); };
         ?>
-        <?php foreach ($groups as $day => $rows): ?>
+        <?php foreach ($enrichedByDay as $day => $rows): ?>
           <?php $label = $day !== 'unknown' ? format_day_label($day, $locale) : '—'; ?>
           <details class="tl-day" open>
             <summary class="tl-day-header"><?=$label?> <span class="muted utc-offset" style="font-weight:500;">(<?=$utcStr?>)</span></summary>
             <div class="tl-rows">
-              <?php
-                // Merge sequential duplicates (same note+address)
-                $merged = [];
-                foreach ($rows as $r) {
-                    $key = trim((string)($r['note'] ?? '')) . '|' . trim((string)($r['address'] ?? ''));
-                    $tsR = strtotime((string)$r['created_at']);
-                    $timeStr = $tsR ? format_time_local($tsR, $locale) : '';
-                    if ($merged && $merged[count($merged)-1]['key'] === $key) {
-                        $merged[count($merged)-1]['count']++;
-                        $merged[count($merged)-1]['times'][] = $timeStr;
-                        // override lat/lng to most recent
-                        $merged[count($merged)-1]['lat'] = (float)$r['lat'];
-                        $merged[count($merged)-1]['lng'] = (float)$r['lng'];
-                    } else {
-                        $merged[] = [
-                            'key'=>$key,
-                            'row'=>$r,
-                            'time'=>$timeStr,
-                            'times'=>[$timeStr],
-                            'count'=>1,
-                            'lat'=>(float)$r['lat'],
-                            'lng'=>(float)$r['lng'],
-                        ];
-                    }
-                }
-                foreach ($merged as $m):
-                  $r = $m['row'];
-                  $time = $m['time'];
-                  $times = $m['times'];
-                  $count = $m['count'];
-                  $note = (string)($r['note'] ?? '');
-                  $addr = (string)($r['address'] ?? '');
-                  [$cls, $icon] = $classify($note);
-                  $lat = $m['lat']; $lng = $m['lng'];
-                  $mapsUrl = ($lat && $lng) ? ('https://www.google.com/maps?q=' . rawurlencode($lat . ',' . $lng)) : '';
-                  $serviceArea = service_area_from_address($addr);
-              ?>
-              <div class="tl-row <?=$cls?>">
-                <div class="tl-time"><?=h($time)?></div>
-                <div class="tl-line"><span class="tl-dot"><i class="<?=$icon?>"></i></span></div>
-                <div class="tl-content">
-                  <div class="tl-title <?=$cls==='delivered'?'delivered':'intransit'?>">
-                    <?=h($note ?: 'Status update')?>
-                    <?php if ($count>1): ?><span class="tl-count">×<?=$count?></span><?php endif; ?>
+              <?php $rowsDesc = array_reverse($rows); $prevIsoDay = null; foreach ($rowsDesc as $en): $r=$en['row']; $note=$en['note']; $addr=$en['addr']; [$cls,$icon] = $classify($note); ?>
+                <?php if ($en['country_break'] && ($en['iso']||$addr)): $prevIsoDay = $en['iso']; ?>
+                  <div class="tl-country" style="margin:8px 0 2px; padding:6px 10px; background:#fff8e1; border:1px solid #ffe39c; border-radius:10px; display:inline-flex; align-items:center; gap:8px;">
+                    <span style="font-size:18px; line-height:1;"><?=$en['flag']?></span>
+                    <strong><?=h($en['country_name'] ?: 'Unknown country')?></strong>
                   </div>
-                  <?php if ($addr): ?><div class="tl-sub"><?php echo h($upper($addr)); ?></div><?php endif; ?>
-                  <?php if ($serviceArea): ?><div class="tl-meta">Service area: <?=h($serviceArea)?></div><?php endif; ?>
-                  <div class="tl-meta">
-                    <a href="?tracking=<?=h($pkg['tracking_number'])?>">1 Unit: <?=h($pkg['tracking_number'])?></a>
-                    <?php if ($mapsUrl): ?> · <a href="<?=$mapsUrl?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
-                    <?php if ($count>1 && count($times)>1): ?> · Times: <?=h(implode(', ', array_unique($times)))?><?php endif; ?>
+                <?php endif; ?>
+                <div class="tl-row <?=$cls?>">
+                  <div class="tl-time"><?=h(($en['time_local'] ?: ''))?> <span class="muted"><?=h($en['tz_abbr'])?></span></div>
+                  <div class="tl-line"><span class="tl-dot"><i class="<?=$icon?>"></i></span></div>
+                  <div class="tl-content">
+                    <div class="tl-title <?=$cls==='delivered'?'delivered':'intransit'?>">
+                      <?=h($note ?: 'Status update')?>
+                    </div>
+                    <?php if ($addr): ?><div class="tl-sub"><?php echo h($upper($addr)); ?></div><?php endif; ?>
+                    <div class="tl-meta">
+                      <?php if ($en['dist_km'] > 0 || $en['dur_sec'] > 0): ?>
+                        Leg: <?=number_format($en['dist_km'], 1)?> km · <?=h(format_duration((int)$en['dur_sec']))?>
+                      <?php endif; ?>
+                      <?php if ($en['border']): ?> · Border crossed: <?=h($en['border'])?><?php endif; ?>
+                      <?php if ($en['iso']): ?> · Country: <?=$en['flag']?> <?=h($en['country_name'])?><?php endif; ?>
+                      <?php if (!empty($r['lat']) && !empty($r['lng'])): ?> · <a href="<?= 'https://www.google.com/maps?q=' . rawurlencode($r['lat'] . ',' . $r['lng']) ?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
+                    </div>
                   </div>
                 </div>
-              </div>
               <?php endforeach; ?>
             </div>
           </details>

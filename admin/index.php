@@ -365,6 +365,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    // New: add a note at current package position (does not move marker)
+    if ($action === 'addNote') {
+        $id = (int)($_POST['id'] ?? 0);
+        $note = trim((string)($_POST['note'] ?? ''));
+        if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
+        if ($note === '') { echo json_encode(['ok'=>false,'error'=>'Note is required']); exit; }
+        // Limit note length
+        if (mb_strlen($note) > 500) { $note = mb_substr($note, 0, 500); }
+
+        // Fetch current coords/address
+        $stm = $pdo->prepare("SELECT last_lat, last_lng, last_address FROM packages WHERE id = ?");
+        $stm->execute([$id]);
+        $pkg = $stm->fetch();
+        if (!$pkg) { echo json_encode(['ok'=>false,'error'=>'Not found']); exit; }
+
+        $now = date('Y-m-d H:i:s');
+        $pdo->beginTransaction();
+        try {
+            $stm2 = $pdo->prepare("INSERT INTO locations (package_id, lat, lng, address, note, created_at) VALUES (?,?,?,?,?, ?)");
+            $lat = isset($pkg['last_lat']) ? (float)$pkg['last_lat'] : null;
+            $lng = isset($pkg['last_lng']) ? (float)$pkg['last_lng'] : null;
+            $addr = $pkg['last_address'] ?? null;
+            $stm2->execute([$id, $lat, $lng, $addr, $note, $now]);
+            // Touch updated_at
+            $stm3 = $pdo->prepare("UPDATE packages SET updated_at=? WHERE id=?");
+            $stm3->execute([$now, $id]);
+            $pdo->commit();
+            echo json_encode(['ok'=>true]);
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            echo json_encode(['ok'=>false,'error'=>'DB error']);
+        }
+        exit;
+    }
+
     if ($action === 'getPackage') {
         $id = (int)($_POST['id'] ?? 0);
         if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid id']); exit; }
@@ -813,7 +848,9 @@ $version_info = $logged ? checkVersion() : null;
       </form>
 
       <div id="historyBox" style="margin-top:16px; display:none;">
-        <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-time-line"></i> History: <span id="histTitle"></span></h3>
+        <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-time-line"></i> History: <span id="histTitle"></span>
+          <button id="histAddNoteBtn" class="btn-small" style="margin-left:auto;"><i class="ri-sticky-note-add-line"></i> Add note</button>
+        </h3>
         <div class="list">
           <table id="histTbl">
             <thead><tr><th>Date</th><th>Coords</th><th>Address</th><th>Note</th></tr></thead>
@@ -1172,6 +1209,7 @@ $version_info = $logged ? checkVersion() : null;
           ${addr}
           <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
             <button onclick="setByAddress(${row.id})">Set by address</button>
+            <button onclick="addNote(${row.id})">Add note</button>
             <button onclick="showHistory(${row.id}, '${row.tracking_number.replace(/'/g, "\\'")}')">History</button>
             <button onclick="openEdit(${row.id})">Edit</button>
           </div>
@@ -1199,7 +1237,7 @@ $version_info = $logged ? checkVersion() : null;
           <td>${r.title ? r.title : ''}</td>
           <td>${coords}</td>
           <td>${r.updated_at}</td>
-          <td><span class="link" onclick="focusPkg(${r.id})">Focus</span> | <span class="link" onclick="openEdit(${r.id})">Edit</span> | <span class="link" onclick="deletePkg(${r.id})">Delete</span></td>
+          <td><span class="link" onclick="focusPkg(${r.id})">Focus</span> | <span class="link" onclick="openEdit(${r.id})">Edit</span> | <span class="link" onclick="addNote(${r.id})">Add note</span> | <span class="link" onclick="deletePkg(${r.id})">Delete</span></td>
         `;
         tbody.appendChild(tr);
       }
@@ -1263,7 +1301,23 @@ $version_info = $logged ? checkVersion() : null;
 
     // Set by address (client geocodes via Nominatim)
     window.setByAddress = async function(id){
-      const addr = prompt('Enter address:');
+      // Prefill with reverse-geocoded address from current marker position or last known address
+      let defaultAddr = '';
+      try {
+        const m = markers.get(id);
+        if (m) {
+          const ll = m.getLatLng();
+          defaultAddr = await reverseGeocode(ll.lat, ll.lng);
+        } else {
+          const r = currentData.find(x=>x.id===id);
+          if (r) {
+            if (r.last_address) defaultAddr = r.last_address;
+            else if (r.last_lat !== null && r.last_lng !== null) defaultAddr = await reverseGeocode(r.last_lat, r.last_lng);
+          }
+        }
+      } catch {}
+
+      const addr = prompt('Enter address:', defaultAddr || '');
       if (!addr) return;
       try {
         const url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(addr);
@@ -1280,13 +1334,21 @@ $version_info = $logged ? checkVersion() : null;
     }
 
     // Focus row
-    window.focusPkg = function(id){
+    window.focusPkg = async function(id){
       const r = currentData.find(x=>x.id===id);
       if (!r) return;
+      // Load history first and draw focus route
+      let hist = [];
+      try{
+        const fd = new FormData(); fd.append('action','history'); fd.append('id', String(id));
+        const j = await fetch('', { method:'POST', body: fd }).then(r=>r.json());
+        if (j.ok) hist = j.data || [];
+      }catch{}
+      await drawFocusRoute(r, hist);
+      // Open marker popup and show history
       if (r.last_lat !== null && r.last_lng !== null) {
-        map.setView([r.last_lat, r.last_lng], 15);
         const m = markers.get(id);
-        if (m) m.openPopup();
+        if (m) { m.openPopup(); }
       }
       showHistory(id, r.tracking_number);
     }
@@ -1306,6 +1368,7 @@ $version_info = $logged ? checkVersion() : null;
       formData.append('id', id);
       const j = await fetch('', { method: 'POST', body: formData }).then(r => r.json());
       if (!j.ok) { alert(j.error || 'Failed to load history'); return; }
+      histPkgId = id;
       $('#histTitle').textContent = title;
       const tbody = $('#histTbl tbody');
       tbody.innerHTML = '';
@@ -1322,12 +1385,41 @@ $version_info = $logged ? checkVersion() : null;
       $('#historyBox').style.display = 'block';
     }
 
+    // Add note at current position
+    let histPkgId = null; // last history package shown
+    window.addNote = async function(id){
+      const note = prompt('Enter note (e.g., Passed customs, Handed to courier):');
+      if (!note) return;
+      const j = await post('addNote', { id, note });
+      if (!j.ok) { alert(j.error || 'Failed to add note'); return; }
+      await loadList();
+      if (histPkgId === id) {
+        showHistory(id, (currentData.find(x=>x.id===id)?.tracking_number)||'');
+      }
+    }
+
+    // History header Add note button
+    document.getElementById('histAddNoteBtn')?.addEventListener('click', ()=>{ if (histPkgId) addNote(histPkgId); });
+
     // Route layers for start/destination visualization
     let routeStart = null, routeDest = null, routeLine = null;
+    // Additions for focus view: traveled path, stop dots, and current marker highlight
+    let routeTraveled = null;
+    let routeStopDots = [];
+    let prevFocusedId = null;
+    let prevFocusedIcon = null;
+    const currentHighlightIcon = L.divIcon({ className:'', html:'<div style="width:26px;height:26px;border-radius:50%;background:#ffcd00;border:2px solid #b58900;box-shadow:0 0 0 3px #fff, 0 0 12px rgba(255,205,0,0.8)"></div>', iconSize:[26,26], iconAnchor:[13,13]});
     function clearRoute(){
       if(routeStart){ map.removeLayer(routeStart); routeStart = null; }
       if(routeDest){ map.removeLayer(routeDest); routeDest = null; }
       if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
+      if(routeTraveled){ map.removeLayer(routeTraveled); routeTraveled = null; }
+      if(routeStopDots && routeStopDots.length){ routeStopDots.forEach(d=>{ try{ map.removeLayer(d); }catch{} }); routeStopDots = []; }
+      // Restore previously highlighted marker icon
+      if (prevFocusedId !== null && markers.has(prevFocusedId) && prevFocusedIcon) {
+        try { markers.get(prevFocusedId).setIcon(prevFocusedIcon); } catch{}
+      }
+      prevFocusedId = null; prevFocusedIcon = null;
     }
 
     async function geocode(q){
@@ -1338,6 +1430,63 @@ $version_info = $logged ? checkVersion() : null;
         if(!arr.length) return null;
         return [parseFloat(arr[0].lat), parseFloat(arr[0].lon)];
       }catch{ return null; }
+    }
+
+    // Draw full focus route similar to client: start/dest markers, dashed full route, solid traveled path through history, and highlight current marker
+    async function drawFocusRoute(pkgRow, historyRows){
+      clearRoute();
+      const startQ = (pkgRow.arriving || '').trim();
+      const destQ  = (pkgRow.destination || '').trim();
+      const startLL = await geocode(startQ);
+      const destLL  = await geocode(destQ);
+
+      const stopsChrono = Array.isArray(historyRows) ? historyRows.slice().reverse().map(r=>[parseFloat(r.lat), parseFloat(r.lng)]) : [];
+      const curLL = (pkgRow.last_lat!==null && pkgRow.last_lng!==null) ? [pkgRow.last_lat, pkgRow.last_lng] : null;
+      if (stopsChrono.length === 0 && curLL) stopsChrono.push(curLL);
+
+      const routeFull = [];
+      if (startLL) routeFull.push(startLL);
+      for (const pt of stopsChrono) routeFull.push(pt);
+      if (destLL) routeFull.push(destLL);
+
+      // Start/Dest markers
+      const startIcon = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#16a34a;border:2px solid #0f7a37;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
+      const destIcon  = L.divIcon({ className:'', html:'<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;border:2px solid #b91c1c;box-shadow:0 0 0 2px #fff"></div>', iconSize:[22,22], iconAnchor:[11,11]});
+      if (startLL) routeStart = L.marker(startLL, {icon:startIcon}).addTo(map).bindTooltip('Start');
+      if (destLL)  routeDest  = L.marker(destLL,  {icon:destIcon}).addTo(map).bindTooltip('Destination');
+
+      // Dashed full route
+      if (routeFull.length >= 2) {
+        routeLine = L.polyline(routeFull, { color:'#111', weight:3, opacity:0.5, dashArray:'6 6' }).addTo(map);
+      }
+      // Solid traveled path from start through stops
+      const traveledPts = [];
+      if (startLL) traveledPts.push(startLL);
+      for (const s of stopsChrono) traveledPts.push(s);
+      if (traveledPts.length >= 2) {
+        routeTraveled = L.polyline(traveledPts, { color:'#D40511', weight:4, opacity:0.85 }).addTo(map);
+      }
+      // Stop dots
+      for (const s of stopsChrono) {
+        const dot = L.circleMarker(s, { radius:4, color:'#D40511', weight:1, fillColor:'#FFCC00', fillOpacity:0.9 }).addTo(map);
+        routeStopDots.push(dot);
+      }
+
+      // Highlight current package marker icon differently
+      if (pkgRow.id && markers.has(pkgRow.id)) {
+        try {
+          const m = markers.get(pkgRow.id);
+          prevFocusedId = pkgRow.id;
+          prevFocusedIcon = m.options.icon || new L.Icon.Default();
+          m.setIcon(currentHighlightIcon);
+          // Keep popup behavior
+        } catch{}
+      }
+
+      // Fit bounds
+      const layers = [];
+      for (const p of routeFull) layers.push(p);
+      if (layers.length){ if (autoZoomEnabled) { map.fitBounds(layers, { padding:[30,30] }); } }
     }
 
     async function drawRouteFor(pkg){
