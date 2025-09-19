@@ -774,9 +774,11 @@ $version_info = $logged ? checkVersion() : null;
 <div class="bg-animated" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
 <header>
   <div style="display:flex; align-items:center; gap:10px;">
+    <!-- Temporarily hidden logo link
     <a href="../index.php" title="Open client" style="display:inline-flex; align-items:center; gap:8px; background:#fff; border-radius:12px; padding:6px 10px; box-shadow:0 6px 14px rgba(0,0,0,0.15);">
       <img src="../dhl-logo.svg" alt="Logo" style="height:18px; width:auto; display:block; filter:saturate(110%);"/>
     </a>
+    -->
     <strong style="display:flex; align-items:center; gap:8px;"><i class="ri-settings-3-line"></i> Admin • Package Tracker</strong>
   </div>
   <?php if ($logged): ?>

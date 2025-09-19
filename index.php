@@ -414,9 +414,11 @@ if ($cr_should_emit) {
 </div>
 <header>
   <div style="display:flex; align-items:center; gap:10px;">
-    <span class="logo-pill"><img src="dhl-logo.svg" alt="Logo" class="brand-logo"></span>
-    <h1>Package Tracker</h1>
-  </div>
+      <!-- Logo temporarily hidden
+      <span class="logo-pill"><img src="dhl-logo.svg" alt="Logo" class="brand-logo"></span>
+      -->
+      <h1>Package Tracker</h1>
+    </div>
   <span class="brand-badge"><i class="ri-flashlight-line" style="margin-right:6px;"></i>Fast • Reliable</span>
 </header>
 <?php if ($version_info && $version_info['update_available']): ?>

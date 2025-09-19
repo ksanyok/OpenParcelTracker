@@ -9,9 +9,11 @@ $year = date('Y');
 ?>
 <footer style="text-align:center; padding:14px 10px; background: rgba(255,255,255,0.9); backdrop-filter: blur(6px); border-top: 1px solid rgba(0,0,0,0.06);">
     <div style="display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:center;">
+        <!-- Logo temporarily hidden
         <img src="<?= (strpos($_SERVER['SCRIPT_NAME'] ?? '', '/admin/') === 0) ? '../dhl-logo.svg' : 'dhl-logo.svg' ?>" alt="Logo" style="height:18px; width:auto; display:block; filter:saturate(110%);"/>
+        -->
         <p style="margin:0; color:#0b0b0b;">
-            &copy; <?=$year?> <?=htmlspecialchars($host, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')?>
+            &copy; <?=$year?> <!-- <?=htmlspecialchars($host, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')?> -->
             | OpenParcelTracker v<?= get_version() ?> | Last updated: <?= get_last_update() ?>
             <?php if (isset($_SESSION['uid'])): ?>
             | <a href="javascript:location.reload()" style="color:#D40511; text-decoration:underline;">Check for updates</a>
