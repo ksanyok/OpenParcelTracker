@@ -104,9 +104,11 @@ if ($tracking !== '') {
     $pkg = $stm->fetch();
 
     if ($pkg) {
-        // Use new grouped movement history
-        $group_by = $_GET['group_by'] ?? 'country,date'; // Allow switching between country,date and date,country
-        $history_groups = get_movement_history($pkg['id'], $group_by);
+        $stmH = $pdo->prepare("SELECT id, lat, lng, address, note, created_at 
+                               FROM locations WHERE package_id = ? 
+                               ORDER BY created_at DESC");
+        $stmH->execute([$pkg['id']]);
+        $history = $stmH->fetchAll();
     }
 }
 
@@ -393,131 +395,93 @@ if ($cr_should_emit) {
 
   <!-- Movement history timeline -->
   <div class="card" style="margin-top:16px;">
-    <div class="row" style="justify-content:space-between; align-items:center;">
-      <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="ri-route-line"></i> Movement history</h3>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <label style="font-size:12px; color:var(--muted);">Group by:</label>
-        <select id="groupSelect" style="padding:4px 8px; border:1px solid #e3e6ea; border-radius:8px; font-size:12px;">
-          <option value="country,date" <?php echo $group_by === 'country,date' ? 'selected' : ''; ?>>Country → Date</option>
-          <option value="date,country" <?php echo $group_by === 'date,country' ? 'selected' : ''; ?>>Date → Country</option>
-        </select>
-      </div>
-    </div>
-    
-    <?php if (empty($history_groups)): ?>
-      <p class="muted">No movement history yet.</p>
+    <h3 style="display:flex; align-items:center; gap:8px;"><i class="ri-route-line"></i> Movement history</h3>
+    <?php if (!$history): ?>
+      <p class="muted">No history yet.</p>
     <?php else: ?>
-      <div class="timeline" style="margin-top:12px;">
+      <div class="timeline">
         <?php
+          // Group by day (DESC order already)
+          $groups = [];
+          foreach ($history as $row) {
+            $ts = strtotime((string)$row['created_at']);
+            $dayKey = $ts ? date('Y-m-d', $ts) : 'unknown';
+            $groups[$dayKey][] = $row;
+          }
+          krsort($groups);
+
           $locale = get_locale();
-          
-          $classify = function(string $note, string $title = ''): array {
-            $n = mb_strtolower($note . ' ' . $title);
-            $cls = 'intransit'; $icon = 'ri-alert-line';
+          $utcStr = utc_offset_str();
+
+          $classify = function(string $note): array {
+            $n = mb_strtolower($note);
+            $cls = 'intransit'; $icon = 'ri-alert-line'; // triangle-ish for in-transit
             if ($n === '') { return [$cls, $icon]; }
             if (str_contains($n, 'достав') || str_contains($n, 'deliver')) { return ['delivered', 'ri-check-line']; }
             if (str_contains($n, 'кур') || str_contains($n, 'courier')) { return ['courier', 'ri-truck-line']; }
             if (str_contains($n, 'прибув') || str_contains($n, 'arriv')) { return ['arrived', 'ri-inbox-archive-line']; }
             if (str_contains($n, 'залиш') || str_contains($n, 'depart') || str_contains($n, 'left')) { return ['departed', 'ri-flight-takeoff-line']; }
             if (str_contains($n, 'митн') || str_contains($n, 'custom')) { return ['customs', 'ri-shield-check-line']; }
-            if (str_contains($n, 'processed') || str_contains($n, 'gateway')) { return ['customs', 'ri-building-line']; }
             return [$cls, $icon];
           };
-          
-          $upper = function(string $s): string { 
-            return function_exists('mb_strtoupper') ? mb_strtoupper($s) : strtoupper($s); 
-          };
+          $upper = function(string $s): string { return function_exists('mb_strtoupper') ? mb_strtoupper($s) : strtoupper($s); };
         ?>
-        
-        <?php foreach ($history_groups as $group): ?>
+        <?php foreach ($groups as $day => $rows): ?>
+          <?php $label = $day !== 'unknown' ? format_day_label($day, $locale) : '—'; ?>
           <details class="tl-day" open>
-            <summary class="tl-day-header"><?= h($group['label']) ?></summary>
+            <summary class="tl-day-header"><?=$label?> <span class="muted utc-offset" style="font-weight:500;">(<?=$utcStr?>)</span></summary>
             <div class="tl-rows">
-              <?php foreach ($group['movements'] as $movement): 
-                $time_display = '';
-                $utc_offset_display = '';
-                
-                // Use local time if available, fall back to created_at
-                if ($movement['event_dt_local']) {
-                  $ts = strtotime($movement['event_dt_local']);
-                  if ($ts) {
-                    $isUS = str_starts_with($locale, 'en_US');
-                    $time_display = $isUS ? strtolower(date('g:i a', $ts)) : date('H:i', $ts);
-                  }
-                  if ($movement['utc_offset']) {
-                    $utc_offset_display = ' (' . $movement['utc_offset'] . ')';
-                  }
-                } else {
-                  // Fallback to created_at
-                  $ts = strtotime($movement['created_at']);
-                  if ($ts) {
-                    $isUS = str_starts_with($locale, 'en_US');
-                    $time_display = $isUS ? strtolower(date('g:i a', $ts)) : date('H:i', $ts);
-                  }
+              <?php
+                // Merge sequential duplicates (same note+address)
+                $merged = [];
+                foreach ($rows as $r) {
+                    $key = trim((string)($r['note'] ?? '')) . '|' . trim((string)($r['address'] ?? ''));
+                    $tsR = strtotime((string)$r['created_at']);
+                    $timeStr = $tsR ? format_time_local($tsR, $locale) : '';
+                    if ($merged && $merged[count($merged)-1]['key'] === $key) {
+                        $merged[count($merged)-1]['count']++;
+                        $merged[count($merged)-1]['times'][] = $timeStr;
+                        // override lat/lng to most recent
+                        $merged[count($merged)-1]['lat'] = (float)$r['lat'];
+                        $merged[count($merged)-1]['lng'] = (float)$r['lng'];
+                    } else {
+                        $merged[] = [
+                            'key'=>$key,
+                            'row'=>$r,
+                            'time'=>$timeStr,
+                            'times'=>[$timeStr],
+                            'count'=>1,
+                            'lat'=>(float)$r['lat'],
+                            'lng'=>(float)$r['lng'],
+                        ];
+                    }
                 }
-                
-                $title = $movement['title'] ?: $movement['note'] ?: 'Status update';
-                $message = $movement['message'] ?: '';
-                $address = $movement['address'] ?: '';
-                
-                // Build location display
-                $location_parts = [];
-                if ($movement['from_city']) {
-                  $from_location = $movement['from_city'];
-                  if ($movement['from_state']) $from_location .= ', ' . $movement['from_state'];
-                  if ($movement['from_country_code']) $from_location .= ', ' . $movement['from_country_code'];
-                  $location_parts[] = $from_location;
-                }
-                if ($movement['to_city']) {
-                  $to_location = $movement['to_city'];
-                  if ($movement['to_state']) $to_location .= ', ' . $movement['to_state'];
-                  if ($movement['to_country_code']) $to_location .= ', ' . $movement['to_country_code'];
-                  $location_parts[] = $to_location;
-                }
-                $location_display = implode(' → ', $location_parts);
-                
-                if (!$location_display && $address) {
-                  $location_display = $address;
-                }
-                
-                $facility = $movement['facility_name'] ?: '';
-                $event_code = $movement['event_code'] ?: '';
-                
-                [$cls, $icon] = $classify($movement['note'] ?: '', $movement['title'] ?: '');
-                $lat = (float)$movement['lat']; 
-                $lng = (float)$movement['lng'];
-                $mapsUrl = ($lat && $lng) ? ('https://www.google.com/maps?q=' . rawurlencode($lat . ',' . $lng)) : '';
+                foreach ($merged as $m):
+                  $r = $m['row'];
+                  $time = $m['time'];
+                  $times = $m['times'];
+                  $count = $m['count'];
+                  $note = (string)($r['note'] ?? '');
+                  $addr = (string)($r['address'] ?? '');
+                  [$cls, $icon] = $classify($note);
+                  $lat = $m['lat']; $lng = $m['lng'];
+                  $mapsUrl = ($lat && $lng) ? ('https://www.google.com/maps?q=' . rawurlencode($lat . ',' . $lng)) : '';
+                  $serviceArea = service_area_from_address($addr);
               ?>
-              <div class="tl-row <?= $cls ?>">
-                <div class="tl-time">
-                  <?= h($time_display) ?><?= h($utc_offset_display) ?>
-                </div>
-                <div class="tl-line"><span class="tl-dot"><i class="<?= $icon ?>"></i></span></div>
+              <div class="tl-row <?=$cls?>">
+                <div class="tl-time"><?=h($time)?></div>
+                <div class="tl-line"><span class="tl-dot"><i class="<?=$icon?>"></i></span></div>
                 <div class="tl-content">
-                  <div class="tl-title <?= $cls === 'delivered' ? 'delivered' : 'intransit' ?>">
-                    <?= h($title) ?>
-                    <?php if ($event_code): ?>
-                      <span style="font-size:11px; color:var(--muted); margin-left:8px;">[<?= h($event_code) ?>]</span>
-                    <?php endif; ?>
+                  <div class="tl-title <?=$cls==='delivered'?'delivered':'intransit'?>">
+                    <?=h($note ?: 'Status update')?>
+                    <?php if ($count>1): ?><span class="tl-count">×<?=$count?></span><?php endif; ?>
                   </div>
-                  
-                  <?php if ($message): ?>
-                    <div style="font-size:13px; color:#666; margin-top:2px;"><?= h($message) ?></div>
-                  <?php endif; ?>
-                  
-                  <?php if ($location_display): ?>
-                    <div class="tl-sub"><?= h($upper($location_display)) ?></div>
-                  <?php endif; ?>
-                  
-                  <?php if ($facility): ?>
-                    <div class="tl-sub"><?= h($upper($facility)) ?></div>
-                  <?php endif; ?>
-                  
+                  <?php if ($addr): ?><div class="tl-sub"><?php echo h($upper($addr)); ?></div><?php endif; ?>
+                  <?php if ($serviceArea): ?><div class="tl-meta">Service area: <?=h($serviceArea)?></div><?php endif; ?>
                   <div class="tl-meta">
-                    <a href="?tracking=<?= h($pkg['tracking_number']) ?>">1 Unit: <?= h($pkg['tracking_number']) ?></a>
-                    <?php if ($mapsUrl): ?> · <a href="<?= $mapsUrl ?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
-                    <?php if ($movement['carrier']): ?> · Carrier: <?= h($movement['carrier']) ?><?php endif; ?>
-                    <?php if ($movement['source'] !== 'manual'): ?> · Source: <?= h($movement['source']) ?><?php endif; ?>
+                    <a href="?tracking=<?=h($pkg['tracking_number'])?>">1 Unit: <?=h($pkg['tracking_number'])?></a>
+                    <?php if ($mapsUrl): ?> · <a href="<?=$mapsUrl?>" target="_blank" rel="noopener">Open in Maps</a><?php endif; ?>
+                    <?php if ($count>1 && count($times)>1): ?> · Times: <?=h(implode(', ', array_unique($times)))?><?php endif; ?>
                   </div>
                 </div>
               </div>
@@ -738,16 +702,6 @@ if ($cr_should_emit) {
           utcOffsets[iii].textContent = '(' + txt + ')';
         }
       } catch (e) {}
-
-      // Group switching functionality
-      var groupSelect = document.getElementById('groupSelect');
-      if (groupSelect) {
-        groupSelect.addEventListener('change', function() {
-          var url = new URL(window.location);
-          url.searchParams.set('group_by', this.value);
-          window.location.href = url.toString();
-        });
-      }
     })();
   </script>
   <?php endif; ?>
