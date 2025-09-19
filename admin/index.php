@@ -1775,9 +1775,24 @@ $version_info = $logged ? checkVersion() : null;
         <div class="input-wrap"><i class="ri-information-line"></i>
           <select id="editStatus" class="plain">
             <option value="">— status —</option>
+            <option value="active">Active</option>
             <option value="created">Created</option>
+            <option value="label_created">Label created</option>
             <option value="in_transit">In transit</option>
+            <option value="arrived">Arrived at facility</option>
+            <option value="processed">Processed at facility</option>
+            <option value="departed">Departed facility</option>
+            <option value="forwarded">Forwarded</option>
+            <option value="customs">Customs processing</option>
+            <option value="out_for_delivery">Out for delivery</option>
+            <option value="attempted_delivery">Delivery attempt</option>
+            <option value="ready_for_pickup">Ready for pickup</option>
             <option value="delivered">Delivered</option>
+            <option value="delayed">Delayed</option>
+            <option value="on_hold">On hold</option>
+            <option value="exception">Exception</option>
+            <option value="returned">Returned</option>
+            <option value="canceled">Canceled</option>
           </select>
         </div>
       </div>

@@ -284,6 +284,11 @@ $version_info = checkVersion();
   .status-on_hold{background:linear-gradient(180deg,#f1f5f9,#e2e8f0); color:#334155; border-color:#cbd5e1}
   .status-returned{background:linear-gradient(180deg,#f5f3ff,#ede9fe); color:#6d28d9; border-color:#ddd6fe}
   .status-canceled{background:linear-gradient(180deg,#f8fafc,#e2e8f0); color:#334155; border-color:#cbd5e1}
+  /* Added extended statuses */
+  .status-processed{background:linear-gradient(180deg,#eef2ff,#e0e7ff); color:#1e3a8a; border-color:#c7d2fe}
+  .status-forwarded{background:linear-gradient(180deg,#f0fdf4,#dcfce7); color:#166534; border-color:#bbf7d0}
+  .status-attempted_delivery{background:linear-gradient(180deg,#fff1f2,#ffe4e6); color:#9f1239; border-color:#fecdd3}
+  .status-label_created{background:linear-gradient(180deg,#fefce8,#fef9c3); color:#854d0e; border-color:#fde68a}
   .status-ready_for_pickup{background:linear-gradient(180deg,#fff6d6,#ffe8a6); color:#7a5a00; border-color:#ffd34d}
   .status-delayed{background:linear-gradient(180deg,#fff0e0,#ffe2cc); color:#b45309; border-color:#f9c98b}
   .status-active{background:linear-gradient(180deg,#e0f2fe,#bae6fd); color:#075985; border-color:#7dd3fc}
