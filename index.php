@@ -81,6 +81,13 @@ function iso_flag(string $iso): string {
     $chars = [ord($iso[0]) + $base, ord($iso[1]) + $base];
     return mb_convert_encoding('&#' . $chars[0] . ';&#' . $chars[1] . ';', 'UTF-8', 'HTML-ENTITIES');
 }
+function iso_name(string $iso): string {
+    $iso = strtoupper(trim($iso));
+    $names = [
+        'US'=>'United States','CA'=>'Canada','MX'=>'Mexico','UA'=>'Ukraine','PL'=>'Poland','DE'=>'Germany','FR'=>'France','ES'=>'Spain','IT'=>'Italy','PT'=>'Portugal','NL'=>'Netherlands','BE'=>'Belgium','CZ'=>'Czechia','SK'=>'Slovakia','HU'=>'Hungary','RO'=>'Romania','BG'=>'Bulgaria','GR'=>'Greece','LT'=>'Lithuania','LV'=>'Latvia','EE'=>'Estonia','FI'=>'Finland','SE'=>'Sweden','NO'=>'Norway','DK'=>'Denmark','CH'=>'Switzerland','AT'=>'Austria','IE'=>'Ireland','GB'=>'United Kingdom','IS'=>'Iceland','RU'=>'Russia','BY'=>'Belarus','MD'=>'Moldova','GE'=>'Georgia','AM'=>'Armenia','AZ'=>'Azerbaijan','TR'=>'Turkey','IL'=>'Israel','AE'=>'United Arab Emirates','SA'=>'Saudi Arabia','EG'=>'Egypt','MA'=>'Morocco','BR'=>'Brazil','AR'=>'Argentina','CL'=>'Chile','UY'=>'Uruguay','PY'=>'Paraguay','CO'=>'Colombia','PE'=>'Peru','CN'=>'China','HK'=>'Hong Kong','TW'=>'Taiwan','JP'=>'Japan','KR'=>'South Korea','IN'=>'India','SG'=>'Singapore','MY'=>'Malaysia','TH'=>'Thailand','VN'=>'Vietnam','PH'=>'Philippines','AU'=>'Australia','NZ'=>'New Zealand','ZA'=>'South Africa'
+    ];
+    return $names[$iso] ?? $iso;
+}
 function country_from_address(?string $addr): array {
     $addr = trim((string)$addr);
     if ($addr === '') return ['name'=>'', 'iso'=>'', 'flag'=>''];
@@ -105,6 +112,11 @@ function country_from_address(?string $addr): array {
             if (stripos($cand, $name) !== false) {
                 return ['name'=>$name, 'iso'=>$iso, 'flag'=>iso_flag($iso)];
             }
+        }
+        // Extra: detect trailing ISO-2 token like ", PL" or "[DE]"
+        if (preg_match('/\b([A-Z]{2})\b$/', strtoupper($cand), $m)) {
+            $iso = $m[1];
+            return ['name'=>iso_name($iso), 'iso'=>$iso, 'flag'=>iso_flag($iso)];
         }
     }
     // If still not found, return last segment as name without iso
@@ -883,12 +895,33 @@ if ($cr_should_emit) {
               sb.textContent = labels[finalKey] || (st || autoSt);
               var finalClassKey = (stKey ? stKey : (progress>=100?'delivered': (progress>0?'in_transit':'created')));
               sb.className = 'status-badge status-' + finalClassKey;
+              // Also update inline status badge in info grid
+              var stInline = document.getElementById('statusText');
+              if (stInline){
+                stInline.textContent = labels[finalKey] || (st || autoSt);
+                stInline.className = 'status-badge status-' + finalClassKey;
+              }
             }
           }
         });
       }
 
       init();
+
+      // In case progress card is hidden, still normalize inline status immediately
+      try {
+        var st0 = (pkg && pkg.status ? String(pkg.status) : '').toLowerCase();
+        var stKey0 = (st0||'').replace(/[\s-]+/g,'_');
+        var labels0 = {
+          'in_transit':'In transit', 'delivered':'Delivered', 'created':'Created', 'out_for_delivery':'Out for delivery', 'arrived':'Arrived', 'departed':'Departed', 'customs':'Customs processing', 'exception':'Exception', 'on_hold':'On hold', 'returned':'Returned', 'canceled':'Canceled', 'ready_for_pickup':'Ready for pickup', 'delayed':'Delayed', 'active':'Active'
+        };
+        var stInline0 = document.getElementById('statusText');
+        if (stInline0){
+          var key = stKey0 || 'created';
+          stInline0.textContent = labels0[key] || (st0 || 'created');
+          stInline0.className = 'status-badge status-' + key;
+        }
+      } catch(e) {}
 
       var printBtn = document.getElementById('printBtn');
       if (printBtn) {
